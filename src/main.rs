@@ -37,6 +37,8 @@ impl<'a> RssFeed<'a> {
             .into_iter()
             .filter(|x| self.matcher.match_title(&x.title) && self.matcher.match_tags(&x.tags))
             .collect::<Vec<_>>();
+            
+        dbg!{&filter_data};
 
         Ok(filter_data)
     }

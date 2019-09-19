@@ -26,6 +26,7 @@ struct Item {
     link: Option<String>,
     tags: Option<String>,
     torrent: Option<Torrent>,
+    enclosure: Option<Enclosure>,
 }
 
 #[derive(Deserialize, Debug, Hash)]
@@ -33,6 +34,27 @@ struct Torrent {
     fileName: Option<String>,
     infoHash: Option<String>,
     contentLength: Option<u64>,
+}
+
+#[derive(Deserialize, Debug, Hash)]
+struct Enclosure {
+    url: Option<String>
+}
+
+impl Item {
+    fn link(&self) -> Result<String, Error> {
+        if let Some(enclosure) = &self.enclosure {
+            if let Some(url) = &enclosure.url {
+                return Ok(url.clone())
+            }
+        }
+
+        if let Some(link) = &self.link {
+            return Ok(link.clone())
+        }
+
+        return Err(Error::SerdeMissing)
+    }
 }
 
 pub fn test() {
@@ -66,7 +88,7 @@ impl TorrentData {
                         Ok(Self {
                             title: title.to_string(),
                             tags: tags.split(" ").map(|x| x.to_string()).collect(),
-                            download_link: " ".to_string(),
+                            download_link: item.link()?,
                             size: torrent.contentLength,
                             item_hash: item_hash,
                         })
@@ -82,6 +104,8 @@ impl TorrentData {
 
 pub fn xml_to_torrents<T: std::io::Read>(data: T) -> Result<Vec<TorrentData>, Error> {
     let doc: Document = xml::from_reader(data)?;
+
+    // dbg!{&doc};
 
     if let Some(channel) = doc.channel {
         if let Some(items) = channel.item {
