@@ -7,6 +7,7 @@ use std::hash::{self, Hash, Hasher};
 
 use super::yaml;
 use serde_xml_rs as xml;
+use serde_yaml;
 
 #[derive(Deserialize, Debug)]
 struct Document {
@@ -67,13 +68,14 @@ impl Torrent {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct TorrentData<'a> {
     pub title: String,
     pub tags: HashSet<String>,
     pub download_link: String,
     pub size: Option<u64>,
     pub item_hash: u64,
+    #[serde(skip)]
     pub original_matcher: Option<&'a yaml::TorrentMatch>,
 }
 impl<'a> TorrentData<'a> {
@@ -106,11 +108,20 @@ impl<'a> TorrentData<'a> {
             original_matcher: None,
         })
     }
+
+    pub fn write_metadata(&self) -> Result<(), Error> {
+        let title = format! {"{}\\__META_{}.yaml", self.original_matcher.as_ref().unwrap().save_folder, self.title};
+        let mut buffer = std::fs::File::create(&title)?;
+        dbg! {"made it here"};
+
+        let ser = serde_yaml::to_writer(buffer, &self);
+
+        Ok(())
+    }
 }
 
 pub fn xml_to_torrents<'a, T: std::io::Read>(data: T) -> Result<Vec<TorrentData<'a>>, Error> {
     let doc: Document = xml::from_reader(data)?;
-
 
     if let Some(channel) = doc.channel {
         if let Some(items) = channel.item {

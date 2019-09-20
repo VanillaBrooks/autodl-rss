@@ -4,6 +4,7 @@ use error::Error;
 mod rss;
 mod utils;
 mod yaml;
+mod qbit_data;
 
 use reqwest;
 use std::collections::HashSet;
@@ -13,31 +14,22 @@ use std::time;
 use std::io;
 use std::io::prelude::*;
 
-fn init_setup() {
-    fs::create_dir("temp");
+fn run() -> Result<(), Error> {
+    let mut yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
+
+    loop {
+        // let new_data = yaml_data.run_update();
+        yaml_data.clear_public_trackers();
+        break;
+    }
+
+    Ok(())
 }
 
-fn private_trackers() {}
-
 fn main() {
-    // let feed = yaml::RssFeed {
-    //     url: "".to_string(),
-    //     minute_interval: 0,
-    //     last_announce: 0,
-    //     matcher: yaml::TorrentMatch::new(vec![], vec![], vec![], vec![]),
-    // };
-
-    // let client = reqwest::Client::new();
-    // feed.fetch_new(&client);
-
-    let yaml_data = yaml::FeedManager::from_yaml("config.yaml");
-
-    // dbg! {&yaml_data};
-
-    let mut yaml_data = yaml_data.unwrap();
-
-    let new_data = yaml_data.run_update();
-
-
-    dbg!{new_data};
+    loop {
+        let err = run();
+        dbg! {"ERROR OCCURED: ", err};
+        break;
+    }
 }

@@ -2,6 +2,7 @@ use reqwest;
 use rss;
 use serde_xml_rs as xml;
 use serde_yaml as yaml;
+use serde_json as json;
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,6 +12,7 @@ pub enum Error {
     SerdeMissing,
     IoError(std::io::Error),
     YamlError(yaml::Error),
+    JsonError(json::Error)
 }
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
@@ -35,5 +37,10 @@ impl From<std::io::Error> for Error {
 impl From<yaml::Error> for Error {
     fn from(e: yaml::Error) -> Self {
         Error::YamlError(e)
+    }
+}
+impl From<json::Error> for Error {
+    fn from(e: json::Error) -> Self {
+        Error::JsonError(e)
     }
 }
