@@ -91,7 +91,7 @@ impl<'a> TorrentData<'a> {
             None => return Err(Error::SerdeMissing),
         };
         let tags = match &item.tags {
-            Some(tags) => tags.split(" ").map(|x| x.to_string()).collect(),
+            Some(tags) => tags.split(" ").map(|x| x.to_string().to_lowercase()).collect(),
             None => HashSet::new(),
         };
         let torrent = match item.torrent {

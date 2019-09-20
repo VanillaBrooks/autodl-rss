@@ -17,6 +17,7 @@ pub struct FeedManager {
     next_update: u32,
     #[serde(skip)]
     client: Option<reqwest::Client>,
+
     #[serde(default)]
     previous_hashes: HashSet<u64>,
 
@@ -93,7 +94,7 @@ impl FeedManager {
             .client
             .as_ref()
             .unwrap()
-            .post("http://localhost:8080/command/download/1.1")
+            .post("http://localhost:8080/command/download")
             .form(&post)
             .send();
         dbg! {ans};
@@ -130,15 +131,17 @@ impl FeedManager {
                     let mut map = reqwest::header::HeaderMap::new();
                     map.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static("Fiddler"));
 
-                    let command_url = format!{"http://localhost:8080/command/pause?hash={}",torrent.hash};
-                    let response = cref
-                        .post(&command_url)
-                        .headers(map)
-                        .send();
-                    dbg!{response};
+                    let mut form = HashMap::new();
+                    form.insert("hash", torrent.hash.to_string());
 
-                
-                    break
+                    let command_url = format!{"http://localhost:8080/command/pause?hash={}",torrent.hash};
+                    let command_url = "http://localhost:8080/command/pause";
+                    let response = cref
+                        .post(command_url)
+                        .headers(map)
+                        .form(&form)
+                        .send();
+
                 }
             }
 
@@ -200,7 +203,7 @@ impl RssFeed {
     }
 }
 
-type Matcher = Option<HashSet<String>>;
+type Matcher = Option<Vec<Vec<String>>>;
 #[derive(Deserialize, Debug)]
 pub struct TorrentMatch {
     pub title_wanted: Matcher,
@@ -220,19 +223,19 @@ impl TorrentMatch {
 
         if let Some(wanted_titles) = &self.title_wanted {
             for title in wanted_titles {
-                // println!{"checking {} for key work {}", title_input, title}
-                if !title_input.contains(title) {
-                    // println!{"does not contain title KW, quitting"}
+
+                if !title_input.contains_(&title){
                     good_title = false;
-                    break;
+                    break
                 }
             }
         }
 
         if let Some(banned_title) = &self.title_banned {
             for title in banned_title {
-                if title_input.contains(title) {
+                if title_input.contains_(&title){
                     good_title = false;
+                    break
                 }
             }
         }
@@ -250,20 +253,58 @@ impl TorrentMatch {
 
         if let Some(tags_wanted) = &self.tags_wanted {
             for tag in tags_wanted {
-                if !tag_input.contains(tag) {
-                    good_tags = false
+                if !tag_input.contains_(tag){
+                    good_tags = false;
+                    break
                 }
             }
         }
 
-        if let Some(banned_tags) = &self.tags_banned {
-            for tag in banned_tags {
-                if tag_input.contains(tag) {
+        if let Some(tags_banned) = &self.tags_banned {
+            for tag in tags_banned {
+                if tag_input.contains_(tag) {
                     good_tags = false;
+                    break;
                 }
             }
         }
 
         return good_tags;
+    }
+}
+
+trait Contains_ {
+    fn contains_(&self, value: &Vec<String>) -> bool;
+}
+
+
+impl Contains_ for HashSet<String> {
+    fn contains_(&self, or_tags_group: &Vec<String>) -> bool{
+        let mut good = false;
+
+        for tag in or_tags_group {
+            if self.contains(tag) {
+                good = true;
+                break
+            }
+        }
+
+        good
+        
+    }
+}
+
+impl Contains_ for String {
+    fn contains_(&self, or_tags_group: &Vec<String> ) -> bool {
+        let mut good = false;
+
+        for tag in or_tags_group {
+            if self.contains(tag) {
+                good = true;
+                break
+            }
+        }
+
+        good
     }
 }
