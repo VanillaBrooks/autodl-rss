@@ -3,9 +3,65 @@ Automatic torrent management from RSS feeds
 
 ## How It Works
 
-Using a config.yaml file, `autodl-rss` will parse RSS feeds at specified intervals for user-specific tag / title keywords
+Using a config.yaml file, `autodl-rss` will parse RSS feeds at specified intervals for user-specific tag / title keywords. A RSS item that matches the given title and tag conditions will be forwarded to the torrent client to be downloaded.
 
-### Example config.yaml
+## config.yaml usage
+
+autodl-rss uses a config.yaml file to define: 
+* what kinds of content should be downloaded
+* what conditions should it meet
+* where should the torrent be stored
+* when to pause torrents in the client
+
+### Matchers:
+
+```
+example_matcher: &reference_tag
+  tags_wanted:                                                  # OPTIONAL
+    - -  # every line describes an AND condition
+    - [] # things in brackets with a single dash represent OR conditions
+  tags_banned:                                                  # OPTIONAL
+    - -  # ...
+  title_wanted:                                                 # OPTIONAL
+    - -  # ..
+    - [] # ..
+  title_banned:                                                 # OPTIONAL
+    - -  # ...
+    - [] # ...
+  save_folder: # location for the torrent to be downloaded to   # MANDATORY
+```
+### Feeds
+Feeds specify how all the matchers fit together
+* What matchers apply to what feed
+* urls to each RSS feed
+* rate at which the feed is checked
+
+```
+feeds:
+  - url: https://rss_feed_url ... 
+    update_interval: <frequency feed is checked in seconds>
+    matchers:
+      - *matcher1
+      - *matcher2
+  - url: https://another_rss_feed ...
+    update_interval: # '' 
+    matchers:
+      - *matcher1               # references the "&" tag of each matcher
+      - *matcher3               # matchers can be reused by different feeds
+```
+
+### trackers_to_keep
+
+A tracker URL matching ANY of the items in the list will never be paused
+
+```
+trackers_to_keep
+ - rarbg.to
+ - nyaa.si
+```
+
+
+## Example config.yaml
 
 ```
 # config.yaml in same working directory as executable
