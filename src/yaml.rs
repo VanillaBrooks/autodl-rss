@@ -18,14 +18,21 @@ pub struct FeedManager {
     #[serde(skip)]
     client: Option<reqwest::Client>,
 
+    // rss hashes that we have looked at
     #[serde(default)]
     previous_hashes: HashSet<u64>,
 
+    // private trackers to keep seeding 
     #[serde(default)]
     trackers_to_keep: Vec<String>,
 
+    // qbit hashes that are good and we dont need to recheck
     #[serde(default)]
-    good_qbit_hashes: HashSet<String>
+    good_qbit_hashes: HashSet<String>,
+
+    // qbit hashes that are bad and already paused
+    #[serde(default)]
+    paused_qbit_hashes: HashSet<String>
 }
 impl FeedManager {
     // Fetch yaml of configs to download
@@ -40,7 +47,7 @@ impl FeedManager {
 
     // check all rss feeds for updates: update, pull torrents, and download them if possible
     pub fn run_update(&mut self) -> Result<u32, Error> {
-        let mut next_update_time = 10_000;
+        let mut next_update_time = 60* 15;
         let epoch = utils::current_unix_time();
 
         let mut hashes_to_add = HashSet::new();
@@ -50,7 +57,13 @@ impl FeedManager {
             .filter(|x| {
                 let diff = epoch - x.last_announce;
                 if epoch - x.last_announce > x.update_interval {
+
+                    if x.update_interval < next_update_time {
+                        next_update_time = x.update_interval
+                    }
+
                     true
+
                 } else {
                     if diff < next_update_time {
                         next_update_time = diff
@@ -63,8 +76,10 @@ impl FeedManager {
             .map(|x| x.unwrap())
             .flatten()
             .for_each(|data| {
-                self.start_qbit_download(&data);
-                hashes_to_add.insert(data.item_hash);
+                if !self.previous_hashes.contains(&data.item_hash) {
+                    self.start_qbit_download(&data);
+                    hashes_to_add.insert(data.item_hash);
+                }
             });
 
         hashes_to_add.into_iter().for_each(|hash| {
@@ -78,17 +93,21 @@ impl FeedManager {
 
     // start qbittorrnet's download of a file
     pub fn start_qbit_download(&self, data: &rss::TorrentData) {
+
+        dbg!{"downloading new file"};
+        
         let mut post = HashMap::with_capacity(5);
 
         let save_folder = data.original_matcher.unwrap().save_folder.clone();
 
         fs::create_dir_all(&save_folder);
         let x = data.write_metadata();
-        dbg! {x};
 
         post.insert("urls", data.download_link.clone());
         post.insert("savepath", save_folder);
         post.insert("sequentialDownload", "true".to_string());
+
+        // dbg!{&post};
 
         let ans = self
             .client
@@ -97,7 +116,14 @@ impl FeedManager {
             .post("http://localhost:8080/command/download")
             .form(&post)
             .send();
-        dbg! {ans};
+
+        match ans {
+            Ok(response) => {dbg!{response.status()}; },
+            Err(_) => ()
+        };
+
+        dbg!{&data.title};
+
     }
 
     // Stops torrents that are using banned trackers from seeding
@@ -110,7 +136,7 @@ impl FeedManager {
 
         let data = qbit::QbitData::from_reader(ans)?;
         for torrent in &data {
-            if !self.good_qbit_hashes.contains(&torrent.hash) {
+            if !self.good_qbit_hashes.contains(&torrent.hash) && !self.paused_qbit_hashes.contains(&torrent.hash) {
                 
                 let request = format!{"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
                 let trackers = cref.get(&request)
@@ -128,6 +154,8 @@ impl FeedManager {
                 // stop the torrent since its completed
                 else{
 
+                    dbg!{"stopping torrent"};
+
                     let mut map = reqwest::header::HeaderMap::new();
                     map.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static("Fiddler"));
 
@@ -141,6 +169,8 @@ impl FeedManager {
                         .headers(map)
                         .form(&form)
                         .send();
+
+                    self.paused_qbit_hashes.insert(torrent.hash.clone());
 
                 }
             }
@@ -169,14 +199,11 @@ pub struct RssFeed {
 }
 impl RssFeed {
     pub fn fetch_new(&self, pool: &reqwest::Client) -> Result<Vec<rss::TorrentData>, Error> {
-        // dbg!{"sending"}
-        // let mut response = pool.get(self.url).send()?;
-        // let data = rss::xml_to_torrents(response)?;
+        let mut response = pool.get(&self.url).send()?;
+        let data = rss::xml_to_torrents(response)?;
 
-        let file = File::open("nyaa_si.xml").expect("sample file not found");
-        let mut data = rss::xml_to_torrents(file)?;
-        // dbg!{"made here"};
-        // dbg!{data.len()};
+        // let file = File::open("nyaa_si.xml").expect("sample file not found");
+        // let mut data = rss::xml_to_torrents(file)?;
 
         let mut filter_data = data
             .into_iter()
@@ -186,7 +213,7 @@ impl RssFeed {
 
                 for mat in self.matcher.iter() {
                     if mat.match_title(&x.title) && mat.match_tags(&x.tags) {
-                        // dbg!{"found match"};
+                        dbg!{"found match"};
                         condition = true;
                         x.original_matcher = Some(&mat);
                         break;
@@ -215,6 +242,7 @@ pub struct TorrentMatch {
 }
 impl TorrentMatch {
     fn match_title(&self, title_input: &String) -> bool {
+        // dbg!{title_input};
         let mut good_title = true;
 
         //
@@ -246,6 +274,8 @@ impl TorrentMatch {
     // make sure the HashSet is all lowercase
     fn match_tags(&self, tag_input: &HashSet<String>) -> bool {
         let mut good_tags = true;
+
+        // dbg!{&tag_input};
 
         //
         // TODO: make this a better parsing

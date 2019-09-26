@@ -17,8 +17,7 @@ use std::io::prelude::*;
 fn run() -> Result<(), Error> {
     let mut yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
 
-    dbg!{yaml_data};
-    return Ok(());
+    dbg!{&yaml_data};
 
     loop {
         let update_result = yaml_data.run_update();
@@ -31,19 +30,18 @@ fn run() -> Result<(), Error> {
         };
 
         yaml_data.clear_public_trackers();
+
+        println!{"sleeping for {:?}, current_time: {}", timer, utils::current_unix_time()};
         
         std::thread::sleep(timer);
 
-        break
+        
     }
 
     Ok(())
 }
 
 fn main() {
-    // loop {
-    let err = run();
-    dbg!{err};
-    //     dbg! {"ERROR OCCURED: ", err};
-    // }
+    dbg!{run()};
+    // dbg!{std::time::Instant::now()};
 }

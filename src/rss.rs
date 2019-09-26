@@ -87,7 +87,7 @@ impl<'a> TorrentData<'a> {
         let link = item.link()?;
 
         let title = match &item.title {
-            Some(title) => title,
+            Some(title) => title.to_lowercase(),
             None => return Err(Error::SerdeMissing),
         };
         let tags = match &item.tags {
@@ -110,9 +110,16 @@ impl<'a> TorrentData<'a> {
     }
 
     pub fn write_metadata(&self) -> Result<(), Error> {
-        let title = format! {"{}\\__META_{}.yaml", self.original_matcher.as_ref().unwrap().save_folder, self.title};
-        let mut buffer = std::fs::File::create(&title)?;
-        dbg! {"made it here"};
+        let title = format! {"{}\\__META_{}.yaml", self.original_matcher.as_ref().unwrap().save_folder, self.item_hash};
+        let mut buffer = 
+            match std::fs::File::create(&title) {
+                Ok(buffer) => buffer,
+                Err(e)=> {
+                    println!{"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.as_ref().unwrap().save_folder, e, title}
+                    return Err(Error::from(e))
+                    
+                }
+            };
 
         let ser = serde_yaml::to_writer(buffer, &self);
 
