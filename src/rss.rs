@@ -100,7 +100,7 @@ impl<'a> TorrentData<'a> {
         };
 
         Ok(Self {
-            title: item.title.take().unwrap(),
+            title: item.title.take().unwrap().to_lowercase(),
             tags: tags,
             download_link: link,
             size: torrent.contentLength,

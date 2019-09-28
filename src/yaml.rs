@@ -40,6 +40,7 @@ impl FeedManager {
         let file = File::open(path)?;
 
         let mut yaml: FeedManager = serde_yaml::from_reader(file)?;
+        yaml.lowercase();
         yaml.client = Some(reqwest::Client::new());
 
         Ok(yaml)
@@ -105,7 +106,7 @@ impl FeedManager {
 
         post.insert("urls", data.download_link.clone());
         post.insert("savepath", save_folder);
-        post.insert("sequentialDownload", "true".to_string());
+        // post.insert("sequentialDownload", "true".to_string());
 
         // dbg!{&post};
 
@@ -187,6 +188,12 @@ impl FeedManager {
         }
         return keep
     }
+
+    fn lowercase(&mut self) {
+        for i in &mut self.feeds {
+            i.lowercase()
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -228,6 +235,12 @@ impl RssFeed {
 
         Ok(filter_data)
     }
+
+    fn lowercase(&mut self) {
+        for j in &mut self.matcher {
+            j.lowercase()
+        }
+    }
 }
 
 type Matcher = Option<Vec<Vec<String>>>;
@@ -241,6 +254,27 @@ pub struct TorrentMatch {
     pub save_folder: String,
 }
 impl TorrentMatch {
+    fn lowercase(&mut self) {
+        let lower = |arg: &Matcher| {
+            match &arg {
+                Some(values) => {
+                    let vals: Vec<Vec<String>> = 
+                        values.into_iter().map(|x|{
+                            x.into_iter().map(|y| y.to_lowercase()).collect()
+                        })
+                        .collect();
+                    Some(vals)
+                },
+                None => None
+            }
+        };
+
+        self.title_wanted = lower(&self.title_wanted);
+        self.title_banned = lower(&self.title_banned);
+        self.tags_banned = lower(&self.tags_banned);
+        self.tags_wanted = lower(&self.tags_wanted);
+    }
+
     fn match_title(&self, title_input: &String) -> bool {
         // dbg!{title_input};
         let mut good_title = true;
