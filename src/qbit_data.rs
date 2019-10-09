@@ -44,9 +44,13 @@ pub struct TrackerData {
 impl TrackerData {
     pub fn from_reader<T: Read>(r:T) -> Result<Self, Error> {
         let mut data : Vec<Self> = serde_json::from_reader(r)?;
-        let data = data.remove(0);
 
-        Ok(data)
+        dbg!{&data};
+
+        match data.len() {
+            0 => Err(Error::SerdeGeneral),
+            _ => Ok(data.remove(0))
+        }
     }
     pub fn url(&self) -> &String {
         &self.url

@@ -48,7 +48,7 @@ impl FeedManager {
 
     // check all rss feeds for updates: update, pull torrents, and download them if possible
     pub fn run_update(&mut self) -> Result<u32, Error> {
-        let mut next_update_time = 60* 15;
+        let mut next_update_time = 60 * 60;
         let epoch = utils::current_unix_time();
 
         let mut hashes_to_add = HashSet::new();
@@ -56,33 +56,50 @@ impl FeedManager {
         self.feeds
             .iter()
             .filter(|x| {
+                // the time between the last time we parsed the RSS feed and now
                 let diff = epoch - x.last_announce;
+
+                // if the number of seconds since last update is greater than the number 
+                // of seconds that we wait between updates we will update the RSS feed 
                 if epoch - x.last_announce > x.update_interval {
 
+                    // if the time to the next update is smaller than the current 
+                    // greatest time to update we change the next update interval to
+                    // correspond to this RSS feed
                     if x.update_interval < next_update_time {
                         next_update_time = x.update_interval
                     }
 
                     true
 
+                // else: this RSS feed should not be updated yet
                 } else {
-                    if diff < next_update_time {
-                        next_update_time = diff
-                    }
+                    // I comment this out since i updated other parts of the code
+                    // and i think this now breaks things
+                    // if diff < next_update_time {
+                        // next_update_time = diff
+                    // }
                     false
                 }
             })
+            // for each RSS feed that needs updating, update it
             .map(|x| x.fetch_new(&self.client.as_ref().unwrap()))
+            // if the rss parsing is Result::Ok()
             .filter(|x| x.is_ok())
+            // unwrap good results
             .map(|x| x.unwrap())
+            // flatten nested vectors to one vector
             .flatten()
+            // send data to qbittorrent
             .for_each(|data| {
+                // if we have not previously sent this to qbit...
                 if !self.previous_hashes.contains(&data.item_hash) {
                     self.start_qbit_download(&data);
                     hashes_to_add.insert(data.item_hash);
                 }
             });
 
+        // insert current hashes into the list of hashes that do not need to be checked in the future
         hashes_to_add.into_iter().for_each(|hash| {
             self.previous_hashes.insert(hash);
         });
@@ -129,6 +146,7 @@ impl FeedManager {
 
     // Stops torrents that are using banned trackers from seeding
     pub fn clear_public_trackers(&mut self) -> Result<(), Error> {
+        dbg!{"clearing public trackers"};
         let cref = self.client.as_ref().unwrap();
 
         let ans = cref
@@ -137,20 +155,25 @@ impl FeedManager {
 
         let data = qbit::QbitData::from_reader(ans)?;
         for torrent in &data {
+
             if !self.good_qbit_hashes.contains(&torrent.hash) && !self.paused_qbit_hashes.contains(&torrent.hash) {
                 
                 let request = format!{"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
-                let trackers = cref.get(&request)
+                dbg!{&request};
+                let mut trackers = cref.get(&request)
                 .send()?;
+                
+                let data=  qbit::TrackerData::from_reader(trackers);
 
-                let specific_torrent_data = match qbit::TrackerData::from_reader(trackers){
+                let specific_torrent_data = match data{
                     Ok(data) => data,
-                    Err(_) => continue
+                    Err(_) => {println!{"continue"};continue}
                 };
             
                 // the torrent is in an approved tracker. save the hash so we dont check latter
                 if self.keep_seeding_tracker(&specific_torrent_data) {
                     self.good_qbit_hashes.insert(torrent.hash.clone());
+                    dbg!{"2.1"};
                 }
                 // stop the torrent since its completed
                 else{
@@ -160,6 +183,7 @@ impl FeedManager {
                     let mut map = reqwest::header::HeaderMap::new();
                     map.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static("Fiddler"));
 
+                    dbg!{"2.2"};
                     let mut form = HashMap::new();
                     form.insert("hash", torrent.hash.to_string());
 
@@ -171,6 +195,7 @@ impl FeedManager {
                         .form(&form)
                         .send();
 
+                    dbg!{"2.3"};
                     self.paused_qbit_hashes.insert(torrent.hash.clone());
 
                 }

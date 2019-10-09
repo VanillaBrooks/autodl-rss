@@ -35,7 +35,6 @@ fn run() -> Result<(), Error> {
         
         std::thread::sleep(timer);
 
-        
     }
 
     Ok(())
