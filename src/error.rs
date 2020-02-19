@@ -1,8 +1,10 @@
+use qbittorrent;
 use reqwest;
 use serde_json as json;
 use serde_xml_rs as xml;
 use serde_yaml as yaml;
 
+type qb = qbittorrent::error::Error;
 #[derive(Debug)]
 pub enum Error {
     Reqwest(reqwest::Error),
@@ -12,6 +14,7 @@ pub enum Error {
     YamlError(yaml::Error),
     JsonError(json::Error),
     SerdeGeneral,
+    QbitError(qb),
 }
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
@@ -41,5 +44,10 @@ impl From<yaml::Error> for Error {
 impl From<json::Error> for Error {
     fn from(e: json::Error) -> Self {
         Error::JsonError(e)
+    }
+}
+impl From<qb> for Error {
+    fn from(e: qb) -> Self {
+        Error::QbitError(e)
     }
 }

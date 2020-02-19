@@ -69,16 +69,14 @@ impl Torrent {
 }
 
 #[derive(Debug, Serialize)]
-pub struct TorrentData<'a> {
+pub struct SerdeTorrentData {
     pub title: String,
     pub tags: HashSet<String>,
     pub download_link: String,
     pub size: Option<u64>,
     pub item_hash: u64,
-    #[serde(skip)]
-    pub original_matcher: Option<&'a yaml::TorrentMatch>,
 }
-impl<'a> TorrentData<'a> {
+impl SerdeTorrentData {
     fn new(mut item: Item) -> Result<Self, Error> {
         let mut hasher = DefaultHasher::new();
         item.hash(&mut hasher);
@@ -108,16 +106,38 @@ impl<'a> TorrentData<'a> {
             download_link: link,
             size: torrent.contentLength,
             item_hash: hash,
-            original_matcher: None,
         })
     }
+}
 
+#[derive(Debug, Serialize)]
+pub struct TorrentData<'a> {
+    pub title: String,
+    pub tags: HashSet<String>,
+    pub download_link: String,
+    pub size: Option<u64>,
+    pub item_hash: u64,
+    #[serde(skip)]
+    pub original_matcher: &'a yaml::TorrentMatch,
+}
+impl<'a> TorrentData<'a> {
+    pub fn from_serde_data(data: SerdeTorrentData, matcher: &'a yaml::TorrentMatch) -> Self {
+        TorrentData {
+            title: data.title,
+            tags: data.tags,
+            download_link: data.download_link,
+            size: data.size,
+            item_hash: data.item_hash,
+            original_matcher: matcher,
+        }
+    }
     pub fn write_metadata(&self) -> Result<(), Error> {
-        let title = format! {"{}\\__META_{}.yaml", self.original_matcher.as_ref().unwrap().save_folder, self.item_hash};
+        let title =
+            format! {"{}\\__META_{}.yaml", self.original_matcher.save_folder, self.item_hash};
         let mut buffer = match std::fs::File::create(&title) {
             Ok(buffer) => buffer,
             Err(e) => {
-                println! {"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.as_ref().unwrap().save_folder, e, title}
+                println! {"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.save_folder, e, title}
                 return Err(Error::from(e));
             }
         };
@@ -128,14 +148,14 @@ impl<'a> TorrentData<'a> {
     }
 }
 
-pub fn xml_to_torrents<'a, T: std::io::Read>(data: T) -> Result<Vec<TorrentData<'a>>, Error> {
+pub fn xml_to_torrents<'a, T: std::io::Read>(data: T) -> Result<Vec<SerdeTorrentData>, Error> {
     let doc: Document = xml::from_reader(data)?;
 
     if let Some(channel) = doc.channel {
         if let Some(items) = channel.item {
             let t_data = items
                 .into_iter()
-                .map(|item| TorrentData::new(item))
+                .map(|item| SerdeTorrentData::new(item))
                 .filter(|item| item.is_ok())
                 .map(|item| item.unwrap())
                 .collect::<Vec<_>>();

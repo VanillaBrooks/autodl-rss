@@ -39,7 +39,8 @@ fn run() -> Result<(), Error> {
     Ok(())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     dbg! {run()};
     // dbg!{std::time::Instant::now()};
 }

@@ -2,9 +2,12 @@ use super::error::Error;
 use super::qbit_data as qbit;
 use super::rss;
 use super::utils;
+use qbittorrent::{self, api::Api, queries};
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
+
+use tokio::sync::RwLock;
 
 use reqwest;
 use serde::{Deserialize, Serialize};
@@ -15,12 +18,6 @@ pub struct FeedManager {
     feeds: Vec<RssFeed>,
     #[serde(default)]
     next_update: u32,
-    #[serde(skip)]
-    client: Option<reqwest::Client>,
-
-    // rss hashes that we have looked at
-    #[serde(default)]
-    previous_hashes: HashSet<u64>,
 
     // private trackers to keep seeding
     #[serde(default)]
@@ -33,6 +30,9 @@ pub struct FeedManager {
     // qbit hashes that are bad and already paused
     #[serde(default)]
     paused_qbit_hashes: HashSet<String>,
+
+    #[serde(rename = "qbittorrent")]
+    qbit_data: QbittorrentAuthentication,
 }
 impl FeedManager {
     // Fetch yaml of configs to download
@@ -41,80 +41,101 @@ impl FeedManager {
 
         let mut yaml: FeedManager = serde_yaml::from_reader(file)?;
         yaml.lowercase();
-        yaml.client = Some(reqwest::Client::new());
 
         Ok(yaml)
     }
 
+    fn lowercase(&mut self) {
+        for i in &mut self.feeds {
+            i.lowercase()
+        }
+    }
+
+    pub async fn split(self) -> Result<(Vec<FeedMonitor>, QbitMonitor), Error> {
+        let qbit = QbitMonitor::new(self.qbit_data).await?;
+        let feeds = self
+            .feeds
+            .into_iter()
+            .map(|x| FeedMonitor::from_feed(x))
+            .collect();
+
+        Ok((feeds, qbit))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct QbittorrentAuthentication {
+    username: String,
+    password: String,
+    address: String,
+    trackers: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct QbitMonitor {
+    api: qbittorrent::api::Api,
+    paused: HashSet<String>,
+    no_pause_hashes: HashSet<String>,
+    trackers: Vec<String>,
+}
+impl QbitMonitor {
+    async fn new(qbit_auth: QbittorrentAuthentication) -> Result<Self, Error> {
+        let api = Api::new(&qbit_auth.username, &qbit_auth.password, &qbit_auth.address).await?;
+        Ok(Self {
+            api,
+            paused: HashSet::new(),
+            no_pause_hashes: HashSet::new(),
+            trackers: qbit_auth.trackers,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct FeedMonitor {
+    client: reqwest::Client,
+    // rss hashes that we have looked at
+    previous_hashes: RwLock<HashSet<u64>>,
+    feed: RssFeed,
+}
+impl FeedMonitor {
+    pub fn from_feed(data: RssFeed) -> Self {
+        FeedMonitor {
+            client: reqwest::Client::new(),
+            previous_hashes: RwLock::new(HashSet::new()),
+            feed: data,
+        }
+    }
     // check all rss feeds for updates: update, pull torrents, and download them if possible
-    pub fn run_update(&mut self) -> Result<u32, Error> {
-        let mut next_update_time = 60 * 60;
-        let epoch = utils::current_unix_time();
+    pub async fn run_update(&self) -> Result<u32, Error> {
+        // fetch data from the torrent feed. Error out if there was an issue with the request
+        let data = match self.feed.fetch_new(&self.client).await {
+            Ok(data) => data,
+            Err(e) => return Err(Error::from(e)),
+        };
 
-        let mut hashes_to_add = HashSet::new();
+        let mut write = self.previous_hashes.write().await;
+        for item in data {
+            // if we have not previously downloaded the torrent
+            if !write.contains(&item.item_hash) {
+                // insert it to the history
+                write.insert(item.item_hash);
+                // tell the client to download the torrent
 
-        self.feeds
-            .iter()
-            .filter(|x| {
-                // the time between the last time we parsed the RSS feed and now
-                let diff = epoch - x.last_announce;
+                // TODO: start the qbit here
+                // self.start_qbit_download(&item).await;
+            }
+        }
 
-                // if the number of seconds since last update is greater than the number
-                // of seconds that we wait between updates we will update the RSS feed
-                if epoch - x.last_announce > x.update_interval {
-                    // if the time to the next update is smaller than the current
-                    // greatest time to update we change the next update interval to
-                    // correspond to this RSS feed
-                    if x.update_interval < next_update_time {
-                        next_update_time = x.update_interval
-                    }
-
-                    true
-
-                // else: this RSS feed should not be updated yet
-                } else {
-                    // I comment this out since i updated other parts of the code
-                    // and i think this now breaks things
-                    // if diff < next_update_time {
-                    // next_update_time = diff
-                    // }
-                    false
-                }
-            })
-            // for each RSS feed that needs updating, update it
-            .map(|x| x.fetch_new(&self.client.as_ref().unwrap()))
-            // if the rss parsing is Result::Ok()
-            .filter(|x| x.is_ok())
-            // unwrap good results
-            .map(|x| x.unwrap())
-            // flatten nested vectors to one vector
-            .flatten()
-            // send data to qbittorrent
-            .for_each(|data| {
-                // if we have not previously sent this to qbit...
-                if !self.previous_hashes.contains(&data.item_hash) {
-                    self.start_qbit_download(&data);
-                    hashes_to_add.insert(data.item_hash);
-                }
-            });
-
-        // insert current hashes into the list of hashes that do not need to be checked in the future
-        hashes_to_add.into_iter().for_each(|hash| {
-            self.previous_hashes.insert(hash);
-        });
-
-        self.next_update = next_update_time;
-
-        Ok(next_update_time)
+        return Ok(self.feed.update_interval);
     }
 
     // start qbittorrnet's download of a file
-    pub fn start_qbit_download(&self, data: &rss::TorrentData) {
+    pub async fn start_qbit_download(&self, data: &rss::TorrentData<'_>) {
         dbg! {"downloading new file"};
 
         let mut post = HashMap::with_capacity(5);
 
-        let save_folder = data.original_matcher.unwrap().save_folder.clone();
+        let save_folder = data.original_matcher.save_folder.clone();
 
         fs::create_dir_all(&save_folder);
         let x = data.write_metadata();
@@ -127,11 +148,10 @@ impl FeedManager {
 
         let ans = self
             .client
-            .as_ref()
-            .unwrap()
             .post("http://localhost:8080/command/download")
             .form(&post)
-            .send();
+            .send()
+            .await;
 
         match ans {
             Ok(response) => {
@@ -143,84 +163,82 @@ impl FeedManager {
         dbg! {&data.title};
     }
 
-    // Stops torrents that are using banned trackers from seeding
-    pub fn clear_public_trackers(&mut self) -> Result<(), Error> {
-        dbg! {"clearing public trackers"};
-        let cref = self.client.as_ref().unwrap();
+    // // Stops torrents that are using banned trackers from seeding
+    // pub async fn clear_public_trackers(&mut self) -> Result<(), Error> {
+    //     dbg! {"clearing public trackers"};
+    //     let cref = self.client.as_ref().unwrap();
 
-        let ans = cref
-            .get("http://localhost:8080/query/torrents?filter=completed")
-            .send()?;
+    //     let ans = cref
+    //         .get("http://localhost:8080/query/torrents?filter=completed")
+    //         .send()
+    //         .await?;
 
-        let data = qbit::QbitData::from_reader(ans)?;
-        for torrent in &data {
-            if !self.good_qbit_hashes.contains(&torrent.hash)
-                && !self.paused_qbit_hashes.contains(&torrent.hash)
-            {
-                let request =
-                    format! {"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
-                dbg! {&request};
-                let mut trackers = cref.get(&request).send()?;
+    //     let data = qbit::QbitData::from_reader(ans)?;
+    //     for torrent in &data {
+    //         if !self.good_qbit_hashes.contains(&torrent.hash)
+    //             && !self.paused_qbit_hashes.contains(&torrent.hash)
+    //         {
+    //             let request =
+    //                 format! {"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
+    //             dbg! {&request};
+    //             let mut trackers = cref.get(&request).send().await?;
 
-                let data = qbit::TrackerData::from_reader(trackers);
+    //             let data = qbit::TrackerData::from_reader(trackers);
 
-                let specific_torrent_data = match data {
-                    Ok(data) => data,
-                    Err(_) => {
-                        println! {"continue"};
-                        continue;
-                    }
-                };
+    //             let specific_torrent_data = match data {
+    //                 Ok(data) => data,
+    //                 Err(_) => {
+    //                     println! {"continue"};
+    //                     continue;
+    //                 }
+    //             };
 
-                // the torrent is in an approved tracker. save the hash so we dont check latter
-                if self.keep_seeding_tracker(&specific_torrent_data) {
-                    self.good_qbit_hashes.insert(torrent.hash.clone());
-                    dbg! {"2.1"};
-                }
-                // stop the torrent since its completed
-                else {
-                    dbg! {"stopping torrent"};
+    //             // the torrent is in an approved tracker. save the hash so we dont check latter
+    //             if self.keep_seeding_tracker(&specific_torrent_data) {
+    //                 self.good_qbit_hashes.insert(torrent.hash.clone());
+    //                 dbg! {"2.1"};
+    //             }
+    //             // stop the torrent since its completed
+    //             else {
+    //                 dbg! {"stopping torrent"};
 
-                    let mut map = reqwest::header::HeaderMap::new();
-                    map.insert(
-                        reqwest::header::USER_AGENT,
-                        reqwest::header::HeaderValue::from_static("Fiddler"),
-                    );
+    //                 let mut map = reqwest::header::HeaderMap::new();
+    //                 map.insert(
+    //                     reqwest::header::USER_AGENT,
+    //                     reqwest::header::HeaderValue::from_static("Fiddler"),
+    //                 );
 
-                    dbg! {"2.2"};
-                    let mut form = HashMap::new();
-                    form.insert("hash", torrent.hash.to_string());
+    //                 dbg! {"2.2"};
+    //                 let mut form = HashMap::new();
+    //                 form.insert("hash", torrent.hash.to_string());
 
-                    let command_url =
-                        format! {"http://localhost:8080/command/pause?hash={}",torrent.hash};
-                    let command_url = "http://localhost:8080/command/pause";
-                    let response = cref.post(command_url).headers(map).form(&form).send();
+    //                 let command_url =
+    //                     format! {"http://localhost:8080/command/pause?hash={}",torrent.hash};
+    //                 let command_url = "http://localhost:8080/command/pause";
+    //                 let response = cref.post(command_url).headers(map).form(&form).send();
 
-                    dbg! {"2.3"};
-                    self.paused_qbit_hashes.insert(torrent.hash.clone());
-                }
-            }
-        }
+    //                 dbg! {"2.3"};
+    //                 self.paused_qbit_hashes.insert(torrent.hash.clone());
+    //             }
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    fn keep_seeding_tracker(&self, t_data: &qbit::TrackerData) -> bool {
-        let mut keep = false;
-        for i in &self.trackers_to_keep {
-            if t_data.url().contains(i) {
-                keep = true
-            }
-        }
-        return keep;
-    }
+    // TODO: move this to overall qbit handler
 
-    fn lowercase(&mut self) {
-        for i in &mut self.feeds {
-            i.lowercase()
-        }
-    }
+    // fn keep_seeding_tracker(&self, t_data: &qbit::TrackerData) -> bool {
+    //     let mut keep = false;
+    //     for i in &self.trackers_to_keep {
+    //         if t_data.url().contains(i) {
+    //             keep = true
+    //         }
+    //     }
+    //     return keep;
+    // }
 }
+use serde_xml_rs as xml;
 
 #[derive(Debug, Deserialize)]
 pub struct RssFeed {
@@ -231,32 +249,35 @@ pub struct RssFeed {
     pub matcher: Vec<TorrentMatch>,
 }
 impl RssFeed {
-    pub fn fetch_new(&self, pool: &reqwest::Client) -> Result<Vec<rss::TorrentData>, Error> {
-        let mut response = pool.get(&self.url).send()?;
-        let data = rss::xml_to_torrents(response)?;
+    pub async fn fetch_new(
+        &self,
+        pool: &reqwest::Client,
+    ) -> Result<Vec<rss::TorrentData<'_>>, Error> {
+        let mut response: reqwest::Body = pool.get(&self.url).send().await?.into();
 
-        // let file = File::open("nyaa_si.xml").expect("sample file not found");
-        // let mut data = rss::xml_to_torrents(file)?;
+        let data = if let Some(bytes) = response.as_bytes() {
+            rss::xml_to_torrents(bytes)?
+        } else {
+            return Err(Error::SerdeMissing);
+        };
 
         let mut filter_data = data
             .into_iter()
             .map(|mut x| {
                 // make sure that the file matches at least one type condition
-                let mut condition = false;
+                let mut data = None;
 
                 for mat in self.matcher.iter() {
                     if mat.match_title(&x.title) && mat.match_tags(&x.tags) {
-                        dbg! {"found match"};
-                        condition = true;
-                        x.original_matcher = Some(&mat);
+                        data = Some(rss::TorrentData::from_serde_data(x, mat));
                         break;
                     }
                 }
 
-                (condition, x)
+                data
             })
-            .filter(|(condition, data)| *condition)
-            .map(|(_, data)| data)
+            .filter(|data| data.is_some())
+            .map(|x| x.unwrap())
             .collect::<Vec<_>>();
 
         Ok(filter_data)
