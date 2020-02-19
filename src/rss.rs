@@ -2,7 +2,7 @@ use super::error::Error;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
-use std::hash::{self, Hash, Hasher};
+use std::hash::{Hash, Hasher};
 // custom RSS parsing for non-standard rss feeds
 
 use super::yaml;
@@ -57,6 +57,7 @@ impl Item {
             return Ok(link.clone());
         }
 
+        dbg! {"link missing SerdeMissing"};
         return Err(Error::SerdeMissing);
     }
 }
@@ -87,9 +88,12 @@ impl SerdeTorrentData {
 
         let link = item.link()?;
 
-        let title = match &item.title {
+        let _title = match &item.title {
             Some(title) => title.to_lowercase(),
-            None => return Err(Error::SerdeMissing),
+            None => {
+                dbg! {"missing title sending SerdeMissing"};
+                return Err(Error::SerdeMissing);
+            }
         };
         let tags = match &item.tags {
             Some(tags) => tags
@@ -137,7 +141,7 @@ impl<'a> TorrentData<'a> {
     pub fn write_metadata(&self) -> Result<(), Error> {
         let title =
             format! {"{}\\__META_{}.yaml", self.original_matcher.save_folder, self.item_hash};
-        let mut buffer = match std::fs::File::create(&title) {
+        let buffer = match std::fs::File::create(&title) {
             Ok(buffer) => buffer,
             Err(e) => {
                 println! {"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.save_folder, e, title}
@@ -145,7 +149,7 @@ impl<'a> TorrentData<'a> {
             }
         };
 
-        let ser = serde_yaml::to_writer(buffer, &self);
+        let _ser = serde_yaml::to_writer(buffer, &self);
 
         Ok(())
     }
@@ -165,9 +169,11 @@ pub fn xml_to_torrents<'a, T: std::io::Read>(data: T) -> Result<Vec<SerdeTorrent
 
             Ok(t_data)
         } else {
+            dbg! {"missing channel.item sending serdemissing"};
             Err(Error::SerdeMissing)
         }
     } else {
+        dbg! {"missing channel sending sedemissing"};
         Err(Error::SerdeMissing)
     }
 }

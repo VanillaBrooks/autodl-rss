@@ -5,23 +5,17 @@ mod qbit_data;
 mod rss;
 mod utils;
 mod yaml;
+use std::time::Duration;
 
-use reqwest;
-use std::collections::HashSet;
-use std::fs::{self, File};
-use std::sync::Arc;
-use std::time;
-
-use std::io;
 use std::io::prelude::*;
-
-async fn run() -> Result<(), Error> {
-    let mut yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
+async fn start() -> Result<(), Error> {
+    let yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
+    // dbg! {&yaml_data};
     let mut qbit: yaml::QbitMonitor = yaml_data.qbit().await?;
 
     let feeds = yaml_data.split(&qbit.api);
 
-    feeds.into_iter().map(|x| {
+    feeds.into_iter().for_each(|x| {
         let task = async move {
             loop {
                 let tmp = x.run_update().await;
@@ -39,19 +33,27 @@ async fn run() -> Result<(), Error> {
             }
         };
         tokio::spawn(task);
+        println! {"spawning new task"};
     });
 
-    tokio::spawn(async move {
-        loop {
-            qbit.pause_all().await;
+    loop {
+        println! {"looping qbit cycle"};
+
+        if let Err(e) = qbit.pause_all().await {
+            println! {"there was an error pausing all public torrents"}
+            dbg! {e};
         }
-    });
+
+        delay(60).await.await;
+    }
 
     Ok(())
 }
 
+async fn delay(interval: u64) -> tokio::time::Delay {
+    tokio::time::delay_for(Duration::from_secs(interval))
+}
 #[tokio::main]
 async fn main() {
-    dbg! {run().await};
-    // dbg!{std::time::Instant::now()};
+    start().await;
 }

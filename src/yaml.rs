@@ -1,36 +1,22 @@
 use super::error::Error;
-use super::qbit_data as qbit;
-use super::rss;
-use super::utils;
-use qbittorrent::{self, api::Api, queries, traits::*};
 
-use std::collections::{HashMap, HashSet};
+use super::rss;
+
+use qbittorrent::{self, api::Api, traits::*};
+
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
 use reqwest;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_yaml;
 
 #[derive(Debug, Deserialize)]
 pub struct FeedManager {
     feeds: Vec<RssFeed>,
-    #[serde(default)]
-    next_update: u32,
-
-    // private trackers to keep seeding
-    #[serde(default)]
-    trackers_to_keep: Vec<String>,
-
-    // qbit hashes that are good and we dont need to recheck
-    #[serde(default)]
-    good_qbit_hashes: HashSet<String>,
-
-    // qbit hashes that are bad and already paused
-    #[serde(default)]
-    paused_qbit_hashes: HashSet<String>,
 
     #[serde(rename = "qbittorrent")]
     qbit_data: QbittorrentAuthentication,
@@ -91,7 +77,15 @@ impl QbitMonitor {
     }
 
     pub async fn pause_all(&mut self) -> Result<(), Error> {
-        let all_torrents: Vec<qbittorrent::data::Torrent> = self.api.get_torrent_list().await?;
+        // let all_torrents: Vec<qbittorrent::data::Torrent> = self.api.get_torrent_list().await?;
+
+        let all_torrents: Vec<qbittorrent::data::Torrent> =
+            qbittorrent::queries::TorrentRequestBuilder::default()
+                .filter(qbittorrent::queries::TorrentFilter::Completed)
+                .build()
+                .expect("torrent request builder error")
+                .send(&self.api)
+                .await?;
 
         for torrent in &all_torrents {
             // if its not in the tracker list then pause that shit
@@ -144,12 +138,11 @@ impl FeedMonitor {
         for item in data {
             // if we have not previously downloaded the torrent
             if !write.contains(&item.item_hash) {
-                // insert it to the history
-                write.insert(item.item_hash);
                 // tell the client to download the torrent
-
-                // TODO: start the qbit here
-                // self.start_qbit_download(&item).await;
+                if let Ok(_) = self.start_qbit_download(&item).await {
+                    // insert it to the history
+                    write.insert(item.item_hash);
+                }
             }
         }
 
@@ -163,7 +156,7 @@ impl FeedMonitor {
         let save_folder = data.original_matcher.save_folder.clone();
 
         fs::create_dir_all(&save_folder);
-        let x = data.write_metadata();
+        let _x = data.write_metadata();
 
         let req = qbittorrent::queries::TorrentDownloadBuilder::default()
             .savepath(&save_folder)
@@ -177,7 +170,6 @@ impl FeedMonitor {
         Ok(())
     }
 }
-use serde_xml_rs as xml;
 
 #[derive(Debug, Deserialize)]
 pub struct RssFeed {
@@ -192,17 +184,15 @@ impl RssFeed {
         &self,
         pool: &reqwest::Client,
     ) -> Result<Vec<rss::TorrentData<'_>>, Error> {
-        let mut response: reqwest::Body = pool.get(&self.url).send().await?.into();
+        let response: &[u8] = &pool.get(&self.url).send().await?.bytes().await?;
 
-        let data = if let Some(bytes) = response.as_bytes() {
-            rss::xml_to_torrents(bytes)?
-        } else {
-            return Err(Error::SerdeMissing);
-        };
-
-        let mut filter_data = data
+        let data = rss::xml_to_torrents(response)?;
+        // let data = match response.as_bytes() {
+        // None => return Err(Error::MissingBytes),
+        // };
+        let filter_data = data
             .into_iter()
-            .map(|mut x| {
+            .map(|x| {
                 // make sure that the file matches at least one type condition
                 let mut data = None;
 

@@ -15,6 +15,7 @@ pub enum Error {
     JsonError(json::Error),
     SerdeGeneral,
     QbitError(qb),
+    MissingBytes,
 }
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
