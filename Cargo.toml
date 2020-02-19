@@ -7,11 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rss = "1.8.0"
-
 reqwest = "0.9.20"
 
 serde-xml-rs = "0.3.1"
 serde_yaml = "0.8.11"
-serde_json = "1.0.40"
-serde = {version = "1.0.101", features= ["serde_derive"]}
+serde_json = "1.0.48"
+serde = {version = "1.0.104", features= ["serde_derive"]}
+qbittorrent = "0.1.1"
