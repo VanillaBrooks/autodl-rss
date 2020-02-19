@@ -91,7 +91,10 @@ impl<'a> TorrentData<'a> {
             None => return Err(Error::SerdeMissing),
         };
         let tags = match &item.tags {
-            Some(tags) => tags.split(" ").map(|x| x.to_string().to_lowercase()).collect(),
+            Some(tags) => tags
+                .split(" ")
+                .map(|x| x.to_string().to_lowercase())
+                .collect(),
             None => HashSet::new(),
         };
         let torrent = match item.torrent {
@@ -111,15 +114,13 @@ impl<'a> TorrentData<'a> {
 
     pub fn write_metadata(&self) -> Result<(), Error> {
         let title = format! {"{}\\__META_{}.yaml", self.original_matcher.as_ref().unwrap().save_folder, self.item_hash};
-        let mut buffer = 
-            match std::fs::File::create(&title) {
-                Ok(buffer) => buffer,
-                Err(e)=> {
-                    println!{"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.as_ref().unwrap().save_folder, e, title}
-                    return Err(Error::from(e))
-                    
-                }
-            };
+        let mut buffer = match std::fs::File::create(&title) {
+            Ok(buffer) => buffer,
+            Err(e) => {
+                println! {"ERROR WHEN WRITING METADATA OF {}:\n\t{}\n\t{}\n\tORIGINAL PATH:{}", self.title, self.original_matcher.as_ref().unwrap().save_folder, e, title}
+                return Err(Error::from(e));
+            }
+        };
 
         let ser = serde_yaml::to_writer(buffer, &self);
 

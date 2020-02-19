@@ -1,5 +1,5 @@
-use serde::{Deserialize};
 use super::error::Error;
+use serde::Deserialize;
 use serde_json;
 use std::io::prelude::*;
 
@@ -23,12 +23,12 @@ pub struct QbitData {
     size: usize,
     state: String,
     super_seeding: bool,
-    upspeed: i32 
+    upspeed: i32,
 }
 
 impl QbitData {
-    pub fn from_reader<T:Read>(r: T) -> Result<Vec<Self>, Error>{
-        let data : Vec<Self>= serde_json::from_reader(r)?;
+    pub fn from_reader<T: Read>(r: T) -> Result<Vec<Self>, Error> {
+        let data: Vec<Self> = serde_json::from_reader(r)?;
 
         Ok(data)
     }
@@ -42,14 +42,14 @@ pub struct TrackerData {
     url: String,
 }
 impl TrackerData {
-    pub fn from_reader<T: Read>(r:T) -> Result<Self, Error> {
-        let mut data : Vec<Self> = serde_json::from_reader(r)?;
+    pub fn from_reader<T: Read>(r: T) -> Result<Self, Error> {
+        let mut data: Vec<Self> = serde_json::from_reader(r)?;
 
-        dbg!{&data};
+        dbg! {&data};
 
         match data.len() {
             0 => Err(Error::SerdeGeneral),
-            _ => Ok(data.remove(0))
+            _ => Ok(data.remove(0)),
         }
     }
     pub fn url(&self) -> &String {

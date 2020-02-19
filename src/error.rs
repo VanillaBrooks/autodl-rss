@@ -1,7 +1,7 @@
 use reqwest;
+use serde_json as json;
 use serde_xml_rs as xml;
 use serde_yaml as yaml;
-use serde_json as json;
 
 #[derive(Debug)]
 pub enum Error {
@@ -11,7 +11,7 @@ pub enum Error {
     IoError(std::io::Error),
     YamlError(yaml::Error),
     JsonError(json::Error),
-    SerdeGeneral
+    SerdeGeneral,
 }
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {

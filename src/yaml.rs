@@ -1,7 +1,7 @@
 use super::error::Error;
+use super::qbit_data as qbit;
 use super::rss;
 use super::utils;
-use super::qbit_data as qbit;
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -22,7 +22,7 @@ pub struct FeedManager {
     #[serde(default)]
     previous_hashes: HashSet<u64>,
 
-    // private trackers to keep seeding 
+    // private trackers to keep seeding
     #[serde(default)]
     trackers_to_keep: Vec<String>,
 
@@ -32,7 +32,7 @@ pub struct FeedManager {
 
     // qbit hashes that are bad and already paused
     #[serde(default)]
-    paused_qbit_hashes: HashSet<String>
+    paused_qbit_hashes: HashSet<String>,
 }
 impl FeedManager {
     // Fetch yaml of configs to download
@@ -59,11 +59,10 @@ impl FeedManager {
                 // the time between the last time we parsed the RSS feed and now
                 let diff = epoch - x.last_announce;
 
-                // if the number of seconds since last update is greater than the number 
-                // of seconds that we wait between updates we will update the RSS feed 
+                // if the number of seconds since last update is greater than the number
+                // of seconds that we wait between updates we will update the RSS feed
                 if epoch - x.last_announce > x.update_interval {
-
-                    // if the time to the next update is smaller than the current 
+                    // if the time to the next update is smaller than the current
                     // greatest time to update we change the next update interval to
                     // correspond to this RSS feed
                     if x.update_interval < next_update_time {
@@ -77,7 +76,7 @@ impl FeedManager {
                     // I comment this out since i updated other parts of the code
                     // and i think this now breaks things
                     // if diff < next_update_time {
-                        // next_update_time = diff
+                    // next_update_time = diff
                     // }
                     false
                 }
@@ -111,9 +110,8 @@ impl FeedManager {
 
     // start qbittorrnet's download of a file
     pub fn start_qbit_download(&self, data: &rss::TorrentData) {
+        dbg! {"downloading new file"};
 
-        dbg!{"downloading new file"};
-        
         let mut post = HashMap::with_capacity(5);
 
         let save_folder = data.original_matcher.unwrap().save_folder.clone();
@@ -136,17 +134,18 @@ impl FeedManager {
             .send();
 
         match ans {
-            Ok(response) => {dbg!{response.status()}; },
-            Err(_) => ()
+            Ok(response) => {
+                dbg! {response.status()};
+            }
+            Err(_) => (),
         };
 
-        dbg!{&data.title};
-
+        dbg! {&data.title};
     }
 
     // Stops torrents that are using banned trackers from seeding
     pub fn clear_public_trackers(&mut self) -> Result<(), Error> {
-        dbg!{"clearing public trackers"};
+        dbg! {"clearing public trackers"};
         let cref = self.client.as_ref().unwrap();
 
         let ans = cref
@@ -155,52 +154,52 @@ impl FeedManager {
 
         let data = qbit::QbitData::from_reader(ans)?;
         for torrent in &data {
+            if !self.good_qbit_hashes.contains(&torrent.hash)
+                && !self.paused_qbit_hashes.contains(&torrent.hash)
+            {
+                let request =
+                    format! {"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
+                dbg! {&request};
+                let mut trackers = cref.get(&request).send()?;
 
-            if !self.good_qbit_hashes.contains(&torrent.hash) && !self.paused_qbit_hashes.contains(&torrent.hash) {
-                
-                let request = format!{"http://localhost:8080/query/propertiesTrackers/{}", &torrent.hash};
-                dbg!{&request};
-                let mut trackers = cref.get(&request)
-                .send()?;
-                
-                let data=  qbit::TrackerData::from_reader(trackers);
+                let data = qbit::TrackerData::from_reader(trackers);
 
-                let specific_torrent_data = match data{
+                let specific_torrent_data = match data {
                     Ok(data) => data,
-                    Err(_) => {println!{"continue"};continue}
+                    Err(_) => {
+                        println! {"continue"};
+                        continue;
+                    }
                 };
-            
+
                 // the torrent is in an approved tracker. save the hash so we dont check latter
                 if self.keep_seeding_tracker(&specific_torrent_data) {
                     self.good_qbit_hashes.insert(torrent.hash.clone());
-                    dbg!{"2.1"};
+                    dbg! {"2.1"};
                 }
                 // stop the torrent since its completed
-                else{
-
-                    dbg!{"stopping torrent"};
+                else {
+                    dbg! {"stopping torrent"};
 
                     let mut map = reqwest::header::HeaderMap::new();
-                    map.insert(reqwest::header::USER_AGENT, reqwest::header::HeaderValue::from_static("Fiddler"));
+                    map.insert(
+                        reqwest::header::USER_AGENT,
+                        reqwest::header::HeaderValue::from_static("Fiddler"),
+                    );
 
-                    dbg!{"2.2"};
+                    dbg! {"2.2"};
                     let mut form = HashMap::new();
                     form.insert("hash", torrent.hash.to_string());
 
-                    let command_url = format!{"http://localhost:8080/command/pause?hash={}",torrent.hash};
+                    let command_url =
+                        format! {"http://localhost:8080/command/pause?hash={}",torrent.hash};
                     let command_url = "http://localhost:8080/command/pause";
-                    let response = cref
-                        .post(command_url)
-                        .headers(map)
-                        .form(&form)
-                        .send();
+                    let response = cref.post(command_url).headers(map).form(&form).send();
 
-                    dbg!{"2.3"};
+                    dbg! {"2.3"};
                     self.paused_qbit_hashes.insert(torrent.hash.clone());
-
                 }
             }
-
         }
 
         Ok(())
@@ -209,9 +208,11 @@ impl FeedManager {
     fn keep_seeding_tracker(&self, t_data: &qbit::TrackerData) -> bool {
         let mut keep = false;
         for i in &self.trackers_to_keep {
-            if t_data.url().contains(i) {keep = true}
+            if t_data.url().contains(i) {
+                keep = true
+            }
         }
-        return keep
+        return keep;
     }
 
     fn lowercase(&mut self) {
@@ -245,7 +246,7 @@ impl RssFeed {
 
                 for mat in self.matcher.iter() {
                     if mat.match_title(&x.title) && mat.match_tags(&x.tags) {
-                        dbg!{"found match"};
+                        dbg! {"found match"};
                         condition = true;
                         x.original_matcher = Some(&mat);
                         break;
@@ -280,18 +281,15 @@ pub struct TorrentMatch {
 }
 impl TorrentMatch {
     fn lowercase(&mut self) {
-        let lower = |arg: &Matcher| {
-            match &arg {
-                Some(values) => {
-                    let vals: Vec<Vec<String>> = 
-                        values.into_iter().map(|x|{
-                            x.into_iter().map(|y| y.to_lowercase()).collect()
-                        })
-                        .collect();
-                    Some(vals)
-                },
-                None => None
+        let lower = |arg: &Matcher| match &arg {
+            Some(values) => {
+                let vals: Vec<Vec<String>> = values
+                    .into_iter()
+                    .map(|x| x.into_iter().map(|y| y.to_lowercase()).collect())
+                    .collect();
+                Some(vals)
             }
+            None => None,
         };
 
         self.title_wanted = lower(&self.title_wanted);
@@ -302,6 +300,7 @@ impl TorrentMatch {
 
     fn match_title(&self, title_input: &String) -> bool {
         // dbg!{title_input};
+        // dbg!{&self.title_wanted};
         let mut good_title = true;
 
         //
@@ -310,22 +309,23 @@ impl TorrentMatch {
 
         if let Some(wanted_titles) = &self.title_wanted {
             for title in wanted_titles {
-
-                if !title_input.contains_(&title){
+                if !title_input.contains_(&title) {
                     good_title = false;
-                    break
+                    break;
                 }
             }
         }
 
         if let Some(banned_title) = &self.title_banned {
             for title in banned_title {
-                if title_input.contains_(&title){
+                if title_input.contains_(&title) {
                     good_title = false;
-                    break
+                    break;
                 }
             }
         }
+
+        // dbg!{good_title};
 
         return good_title;
     }
@@ -342,9 +342,9 @@ impl TorrentMatch {
 
         if let Some(tags_wanted) = &self.tags_wanted {
             for tag in tags_wanted {
-                if !tag_input.contains_(tag){
+                if !tag_input.contains_(tag) {
                     good_tags = false;
-                    break
+                    break;
                 }
             }
         }
@@ -366,31 +366,29 @@ trait Contains_ {
     fn contains_(&self, value: &Vec<String>) -> bool;
 }
 
-
 impl Contains_ for HashSet<String> {
-    fn contains_(&self, or_tags_group: &Vec<String>) -> bool{
+    fn contains_(&self, or_tags_group: &Vec<String>) -> bool {
         let mut good = false;
 
         for tag in or_tags_group {
             if self.contains(tag) {
                 good = true;
-                break
+                break;
             }
         }
 
         good
-        
     }
 }
 
 impl Contains_ for String {
-    fn contains_(&self, or_tags_group: &Vec<String> ) -> bool {
+    fn contains_(&self, or_tags_group: &Vec<String>) -> bool {
         let mut good = false;
 
         for tag in or_tags_group {
             if self.contains(tag) {
                 good = true;
-                break
+                break;
             }
         }
 
