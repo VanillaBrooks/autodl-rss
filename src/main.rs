@@ -15,26 +15,26 @@ use std::io;
 use std::io::prelude::*;
 
 fn run() -> Result<(), Error> {
-    let mut yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
+    // let mut yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
 
-    dbg! {&yaml_data};
+    // dbg! {&yaml_data};
 
-    loop {
-        let update_result = yaml_data.run_update();
-        let timer = match update_result {
-            Ok(count_down) => std::time::Duration::from_secs(count_down as u64),
-            Err(e) => {
-                dbg! {e};
-                continue;
-            }
-        };
+    // loop {
+    //     let update_result = yaml_data.run_update();
+    //     let timer = match update_result {
+    //         Ok(count_down) => std::time::Duration::from_secs(count_down as u64),
+    //         Err(e) => {
+    //             dbg! {e};
+    //             continue;
+    //         }
+    //     };
 
-        yaml_data.clear_public_trackers();
+    //     yaml_data.clear_public_trackers();
 
-        println! {"sleeping for {:?}, current_time: {}", timer, utils::current_unix_time()};
+    //     println! {"sleeping for {:?}, current_time: {}", timer, utils::current_unix_time()};
 
-        std::thread::sleep(timer);
-    }
+    //     std::thread::sleep(timer);
+    // }
 
     Ok(())
 }

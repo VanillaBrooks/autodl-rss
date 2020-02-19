@@ -2,7 +2,7 @@ use super::error::Error;
 use super::qbit_data as qbit;
 use super::rss;
 use super::utils;
-use qbittorrent::{self, api::Api, queries};
+use qbittorrent::{self, api::Api, queries, traits::*};
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -50,20 +50,20 @@ impl FeedManager {
             i.lowercase()
         }
     }
+    pub async fn qbit(&self) -> Result<QbitMonitor, Error> {
+        let qbit = QbitMonitor::new(self.qbit_data.clone()).await?;
+        Ok(qbit)
+    }
 
-    pub async fn split(self) -> Result<(Vec<FeedMonitor>, QbitMonitor), Error> {
-        let qbit = QbitMonitor::new(self.qbit_data).await?;
-        let feeds = self
-            .feeds
+    pub async fn split<'a>(self, qbit: &'a qbittorrent::api::Api) -> Vec<FeedMonitor<'a>> {
+        self.feeds
             .into_iter()
-            .map(|x| FeedMonitor::from_feed(x))
-            .collect();
-
-        Ok((feeds, qbit))
+            .map(|x| FeedMonitor::from_feed(x, qbit))
+            .collect()
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct QbittorrentAuthentication {
     username: String,
     password: String,
@@ -88,21 +88,47 @@ impl QbitMonitor {
             trackers: qbit_auth.trackers,
         })
     }
+
+    async fn pause_all(&mut self) -> Result<(), Error> {
+        let all_torrents: Vec<qbittorrent::data::Torrent> = self.api.get_torrent_list().await?;
+
+        for torrent in &all_torrents {
+            // if its not in the tracker list then pause that shit
+            if !self.keep_seeding_tracker(torrent) {
+                torrent.pause(&self.api).await?
+            }
+        }
+        Ok(())
+    }
+
+    // TODO: move this to overall qbit handler
+
+    fn keep_seeding_tracker(&self, t_data: &qbittorrent::data::Torrent) -> bool {
+        let mut keep = false;
+        for i in &self.trackers {
+            if t_data.tracker().contains(i) {
+                keep = true
+            }
+        }
+        return keep;
+    }
 }
 
 #[derive(Debug)]
-pub struct FeedMonitor {
+pub struct FeedMonitor<'a> {
     client: reqwest::Client,
     // rss hashes that we have looked at
     previous_hashes: RwLock<HashSet<u64>>,
     feed: RssFeed,
+    qbit: &'a qbittorrent::api::Api,
 }
-impl FeedMonitor {
-    pub fn from_feed(data: RssFeed) -> Self {
+impl<'a> FeedMonitor<'a> {
+    pub fn from_feed(data: RssFeed, qbit: &'a qbittorrent::api::Api) -> Self {
         FeedMonitor {
             client: reqwest::Client::new(),
             previous_hashes: RwLock::new(HashSet::new()),
             feed: data,
+            qbit,
         }
     }
     // check all rss feeds for updates: update, pull torrents, and download them if possible
@@ -224,18 +250,6 @@ impl FeedMonitor {
     //     }
 
     //     Ok(())
-    // }
-
-    // TODO: move this to overall qbit handler
-
-    // fn keep_seeding_tracker(&self, t_data: &qbit::TrackerData) -> bool {
-    //     let mut keep = false;
-    //     for i in &self.trackers_to_keep {
-    //         if t_data.url().contains(i) {
-    //             keep = true
-    //         }
-    //     }
-    //     return keep;
     // }
 }
 use serde_xml_rs as xml;
