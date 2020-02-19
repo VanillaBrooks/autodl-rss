@@ -32,9 +32,12 @@ struct Item {
 
 #[derive(Deserialize, Debug, Hash)]
 struct Torrent {
-    fileName: Option<String>,
-    infoHash: Option<String>,
-    contentLength: Option<u64>,
+    #[serde(rename = "fileName")]
+    file_name: Option<String>,
+    #[serde(rename = "infoHash")]
+    info_hash: Option<String>,
+    #[serde(rename = "contentLength")]
+    content_length: Option<u64>,
 }
 
 #[derive(Deserialize, Debug, Hash)]
@@ -61,9 +64,9 @@ impl Item {
 impl Torrent {
     fn default() -> Self {
         Self {
-            fileName: None,
-            infoHash: None,
-            contentLength: None,
+            file_name: None,
+            info_hash: None,
+            content_length: None,
         }
     }
 }
@@ -104,7 +107,7 @@ impl SerdeTorrentData {
             title: item.title.take().unwrap().to_lowercase(),
             tags: tags,
             download_link: link,
-            size: torrent.contentLength,
+            size: torrent.content_length,
             item_hash: hash,
         })
     }
