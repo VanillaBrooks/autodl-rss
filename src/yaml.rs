@@ -161,6 +161,7 @@ impl FeedMonitor {
         let req = qbittorrent::queries::TorrentDownloadBuilder::default()
             .savepath(&save_folder)
             .urls(&data.download_link)
+            .category("AUTO_DL")
             .build()
             .expect("incorrect building of download builder");
 
