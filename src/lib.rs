@@ -1,5 +1,31 @@
-pub mod error;
-pub mod qbit_data;
+pub mod monitor;
 pub mod rss;
-pub mod utils;
 pub mod yaml;
+
+use qbittorrent;
+use reqwest;
+use serde_json as json;
+use serde_xml_rs as xml;
+
+use thiserror::Error as ThisError;
+#[derive(Debug, ThisError)]
+pub enum Error {
+    #[error("")]
+    Reqwest(#[from] reqwest::Error),
+    #[error("")]
+    Serde(#[from] serde_xml_rs::Error),
+    #[error("")]
+    IoError(#[from] std::io::Error),
+    #[error("")]
+    YamlError(#[from] serde_yaml::Error),
+    #[error("")]
+    JsonError(#[from] json::Error),
+    #[error("")]
+    SerdeGeneral,
+    #[error("")]
+    QbitError(#[from] qbittorrent::error::Error),
+    #[error("")]
+    SerdeMissing,
+    #[error("")]
+    MissingBytes,
+}

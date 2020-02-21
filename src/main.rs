@@ -1,17 +1,11 @@
-mod error;
-use error::Error;
-
-mod qbit_data;
-mod rss;
-mod utils;
-mod yaml;
 use std::time::Duration;
 
-use std::io::prelude::*;
+use autodl_rss;
+use autodl_rss::{monitor, yaml, Error};
+
 async fn start() -> Result<(), Error> {
     let yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
-    // dbg! {&yaml_data};
-    let mut qbit: yaml::QbitMonitor = yaml_data.qbit().await?;
+    let mut qbit: monitor::QbitMonitor = yaml_data.qbit().await?;
 
     let feeds = yaml_data.split(&qbit.api);
 
@@ -55,5 +49,6 @@ async fn delay(interval: u64) -> tokio::time::Delay {
 }
 #[tokio::main]
 async fn main() {
-    start().await;
+    dbg! {start().await};
+    dbg! {"here"};
 }
