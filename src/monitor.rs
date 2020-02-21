@@ -1,11 +1,11 @@
+use super::rss;
 use super::yaml::{QbittorrentAuthentication, RssFeed};
 use super::Error;
 use qbittorrent::{self, traits::*};
 use std::collections::HashSet;
 use std::fs;
+use std::ops::Deref;
 use std::sync::Arc;
-
-use super::rss;
 
 use tokio::sync::RwLock;
 
@@ -14,8 +14,7 @@ use reqwest;
 #[derive(Debug)]
 pub struct QbitMonitor {
     pub api: Arc<qbittorrent::api::Api>,
-    paused: HashSet<String>,
-    no_pause_hashes: HashSet<String>,
+    checked_hashes: HashSet<String>,
     trackers: Vec<String>,
 }
 impl QbitMonitor {
@@ -25,15 +24,12 @@ impl QbitMonitor {
                 .await?;
         Ok(Self {
             api: Arc::new(api),
-            paused: HashSet::new(),
-            no_pause_hashes: HashSet::new(),
+            checked_hashes: HashSet::new(),
             trackers: qbit_auth.trackers,
         })
     }
 
     pub async fn pause_all(&mut self) -> Result<(), Error> {
-        // let all_torrents: Vec<qbittorrent::data::Torrent> = self.api.get_torrent_list().await?;
-
         let all_torrents: Vec<qbittorrent::data::Torrent> =
             qbittorrent::queries::TorrentRequestBuilder::default()
                 .filter(qbittorrent::queries::TorrentFilter::Completed)
@@ -42,21 +38,45 @@ impl QbitMonitor {
                 .send(&self.api)
                 .await?;
 
-        for torrent in &all_torrents {
-            // if its not in the tracker list then pause that shit
-            if !self.keep_seeding_tracker(torrent) {
-                torrent.pause(&self.api).await?
+        let api = &self.api;
+
+        for torrent in all_torrents {
+            let tracker = match torrent.trackers(&api).await {
+                Ok(x) => x,
+                Err(e) => {
+                    println! {"error getting trackers for torrent {}", torrent.name()};
+                    dbg! {e};
+                    continue;
+                }
+            };
+
+            for tracker in tracker {
+                // if we we need to seed this tracker then skip tracker
+                if self.keep_seeding_tracker(&tracker) {
+                    continue;
+                }
+
+                // if we get here then we know none of the trackers are ones we care about
+                match torrent.pause(&api).await {
+                    Ok(_) => {
+                        self.checked_hashes
+                            .insert(torrent.hash().deref().to_string());
+                    }
+                    Err(e) => {
+                        println! {"error pausing torrent: {} ", torrent.name()}
+                        dbg! {e};
+                    }
+                }
             }
         }
+
         Ok(())
     }
 
-    // TODO: move this to overall qbit handler
-
-    fn keep_seeding_tracker(&self, t_data: &qbittorrent::data::Torrent) -> bool {
+    fn keep_seeding_tracker(&self, t_data: &qbittorrent::data::Tracker) -> bool {
         let mut keep = false;
         for i in &self.trackers {
-            if t_data.tracker().contains(i) {
+            if t_data.url().contains(i) {
                 keep = true
             }
         }

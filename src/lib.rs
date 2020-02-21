@@ -3,9 +3,6 @@ pub mod rss;
 pub mod yaml;
 
 use qbittorrent;
-use reqwest;
-use serde_json as json;
-use serde_xml_rs as xml;
 
 use thiserror::Error as ThisError;
 #[derive(Debug, ThisError)]
@@ -19,7 +16,7 @@ pub enum Error {
     #[error("")]
     YamlError(#[from] serde_yaml::Error),
     #[error("")]
-    JsonError(#[from] json::Error),
+    JsonError(#[from] serde_json::Error),
     #[error("")]
     SerdeGeneral,
     #[error("")]

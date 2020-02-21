@@ -40,8 +40,6 @@ async fn start() -> Result<(), Error> {
 
         delay(60).await.await;
     }
-
-    Ok(())
 }
 
 async fn delay(interval: u64) -> tokio::time::Delay {
