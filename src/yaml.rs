@@ -111,6 +111,7 @@ pub struct TorrentMatch {
     pub tags_wanted: Matcher,
     pub tags_banned: Matcher,
     pub save_folder: String,
+    pub start_paused: Option<bool>,
 }
 impl TorrentMatch {
     fn lowercase(&mut self) {
@@ -184,6 +185,17 @@ impl TorrentMatch {
         }
 
         return good_tags;
+    }
+
+    pub(crate) fn start_condition(&self) -> String {
+        let x = match self.start_paused {
+            Some(val) => match val {
+                true => "true",
+                false => "false",
+            },
+            None => "false",
+        };
+        x.into()
     }
 }
 
