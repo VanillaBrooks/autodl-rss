@@ -10,11 +10,15 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use reqwest;
+use std::boxed::Box;
+use std::pin::Pin;
 
 #[derive(Debug)]
 pub struct QbitMonitor {
     pub api: Arc<qbittorrent::api::Api>,
-    checked_hashes: HashSet<String>,
+    // checked_hashes: HashSet<String>,
+    all_hashes: Pin<Box<HashSet<String>>>,
+    paused_hashes: HashSet<*const String>,
     trackers: Vec<String>,
 }
 impl QbitMonitor {
@@ -24,9 +28,26 @@ impl QbitMonitor {
                 .await?;
         Ok(Self {
             api: Arc::new(api),
-            checked_hashes: HashSet::new(),
+            all_hashes: Pin::new(Box::new(HashSet::new())),
+            paused_hashes: HashSet::new(),
             trackers: qbit_auth.trackers,
         })
+    }
+
+    pub async fn sync_qbit(&mut self) -> Result<(), Error> {
+        let all_torrents: Vec<qbittorrent::data::Torrent> =
+            qbittorrent::queries::TorrentRequestBuilder::default()
+                .build()
+                .expect("torrent request builder error")
+                .send(&self.api)
+                .await?;
+
+        all_torrents.iter().for_each(|new_torrent| {
+            self.all_hashes
+                .insert(new_torrent.hash().deref().to_string());
+        });
+
+        Ok(())
     }
 
     pub async fn pause_all(&mut self) -> Result<(), Error> {
@@ -41,6 +62,20 @@ impl QbitMonitor {
         let api = &self.api;
 
         for torrent in all_torrents {
+            // get a pointer to some item in the hashset
+            let ptr = if let Some(hash) = self.all_hashes.get(torrent.hash().deref()) {
+                hash as *const String
+            } else {
+                println! {"hash was not in all hashes as expected for torrent: {}", torrent.name()}
+                continue;
+            };
+
+            // if we have the pointer stored then we have paused the torrent previously
+            if self.paused_hashes.contains(&ptr) {
+                continue;
+            }
+
+            // get all trackers attached to this torrent
             let tracker = match torrent.trackers(&api).await {
                 Ok(x) => x,
                 Err(e) => {
@@ -50,6 +85,7 @@ impl QbitMonitor {
                 }
             };
 
+            // check each tracker for the torrent against the user-provided list of ok-trackers
             for tracker in tracker {
                 // if we we need to seed this tracker then skip tracker
                 if self.keep_seeding_tracker(&tracker) {
@@ -58,9 +94,9 @@ impl QbitMonitor {
 
                 // if we get here then we know none of the trackers are ones we care about
                 match torrent.pause(&api).await {
+                    // the torrent has been successfully paused
                     Ok(_) => {
-                        self.checked_hashes
-                            .insert(torrent.hash().deref().to_string());
+                        self.paused_hashes.insert(ptr);
                     }
                     Err(e) => {
                         println! {"error pausing torrent: {} ", torrent.name()}
@@ -74,13 +110,12 @@ impl QbitMonitor {
     }
 
     fn keep_seeding_tracker(&self, t_data: &qbittorrent::data::Tracker) -> bool {
-        let mut keep = false;
         for i in &self.trackers {
             if t_data.url().contains(i) {
-                keep = true
+                return true;
             }
         }
-        return keep;
+        return false;
     }
 }
 
