@@ -54,6 +54,8 @@ pub struct QbittorrentAuthentication {
     pub(crate) password: String,
     pub(crate) address: String,
     pub(crate) trackers: Vec<String>,
+    pub(crate) title_bans: Option<Vec<String>>,
+    pub(crate) file_bans: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
