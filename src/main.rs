@@ -33,8 +33,21 @@ async fn start() -> Result<(), Error> {
     loop {
         println! {"looping qbit cycle"};
 
+        // get a list of all hashes
+        if let Err(e) = qbit.sync_qbit().await {
+            println! {"error getting full torrent list hashes"}
+            dbg! {e};
+        }
+
+        // pause all torrents from trackers not matching
         if let Err(e) = qbit.pause_all().await {
             println! {"there was an error pausing all public torrents"}
+            dbg! {e};
+        }
+
+        // pause all torrents with titles we do not want
+        if let Err(e) = qbit.check_titles().await {
+            println! {"there was an error checking torrent titles"}
             dbg! {e};
         }
 

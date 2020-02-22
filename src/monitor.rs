@@ -10,23 +10,67 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use reqwest;
+use std::boxed::Box;
+use std::pin::Pin;
+
+const AUTODL_CATEGORY: &str = "AUTO_DL";
+const TITLE_BAN_CATEGORY: &str = "TITLE_BAN";
 
 #[derive(Debug)]
 pub struct QbitMonitor {
     pub api: Arc<qbittorrent::api::Api>,
-    checked_hashes: HashSet<String>,
+    // checked_hashes: HashSet<String>,
+    all_hashes: Pin<Box<HashSet<String>>>,
+    // paused due to tracker requirements
+    paused_tracker_hashes: HashSet<*const String>,
+    // paused do to title issues
+    paused_title_hashes: HashSet<*const String>,
     trackers: Vec<String>,
+    title_bans: Vec<String>,
+    file_bans: Vec<String>,
 }
 impl QbitMonitor {
     pub async fn new(qbit_auth: QbittorrentAuthentication) -> Result<Self, Error> {
         let api: qbittorrent::Api =
             qbittorrent::Api::new(&qbit_auth.username, &qbit_auth.password, &qbit_auth.address)
                 .await?;
+
+        // set up category for torrents that do not meet title criteria
+        api.add_category(TITLE_BAN_CATEGORY, "").await?;
+
+        let title_bans = qbit_auth.title_bans.unwrap_or(Vec::new());
+        let file_bans = qbit_auth.file_bans.unwrap_or(Vec::new());
+
+        let lower = |x: Vec<String>| x.into_iter().map(|x| x.to_ascii_lowercase()).collect();
+        let title_bans = lower(title_bans);
+        let file_bans = lower(file_bans);
+        let trackers = lower(qbit_auth.trackers);
+
         Ok(Self {
             api: Arc::new(api),
-            checked_hashes: HashSet::new(),
-            trackers: qbit_auth.trackers,
+            all_hashes: Pin::new(Box::new(HashSet::new())),
+            paused_tracker_hashes: HashSet::new(),
+            paused_title_hashes: HashSet::new(),
+            trackers,
+            title_bans,
+            file_bans,
         })
+    }
+
+    pub async fn sync_qbit(&mut self) -> Result<(), Error> {
+        let all_torrents: Vec<qbittorrent::data::Torrent> =
+            qbittorrent::queries::TorrentRequestBuilder::default()
+                .build()
+                .expect("torrent request builder error")
+                .send(&self.api)
+                .await?;
+
+        all_torrents.iter().for_each(|new_torrent| {
+            self.all_hashes
+                .insert(new_torrent.hash().deref().to_string());
+        });
+
+        Ok(())
     }
 
     pub async fn pause_all(&mut self) -> Result<(), Error> {
@@ -41,6 +85,20 @@ impl QbitMonitor {
         let api = &self.api;
 
         for torrent in all_torrents {
+            // get a pointer to some item in the hashset
+            let ptr = if let Some(hash) = self.all_hashes.get(torrent.hash().deref()) {
+                hash as *const String
+            } else {
+                println! {"hash was not in all hashes as expected for torrent: {}", torrent.name()}
+                continue;
+            };
+
+            // if we have the pointer stored then we have paused the torrent previously
+            if self.paused_tracker_hashes.contains(&ptr) {
+                continue;
+            }
+
+            // get all trackers attached to this torrent
             let tracker = match torrent.trackers(&api).await {
                 Ok(x) => x,
                 Err(e) => {
@@ -50,6 +108,7 @@ impl QbitMonitor {
                 }
             };
 
+            // check each tracker for the torrent against the user-provided list of ok-trackers
             for tracker in tracker {
                 // if we we need to seed this tracker then skip tracker
                 if self.keep_seeding_tracker(&tracker) {
@@ -58,12 +117,65 @@ impl QbitMonitor {
 
                 // if we get here then we know none of the trackers are ones we care about
                 match torrent.pause(&api).await {
+                    // the torrent has been successfully paused
                     Ok(_) => {
-                        self.checked_hashes
-                            .insert(torrent.hash().deref().to_string());
+                        self.paused_tracker_hashes.insert(ptr);
                     }
                     Err(e) => {
-                        println! {"error pausing torrent: {} ", torrent.name()}
+                        println! {"error pausing torrent for tracker reasons: {} ", torrent.name()}
+                        dbg! {e};
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn check_titles(&mut self) -> Result<(), Error> {
+        // if we have no title bans just quit
+        if self.title_bans.len() == 0 {
+            return Ok(());
+        }
+
+        // fetch all torrents that have been automatically downloaded
+        let all_torrents: Vec<qbittorrent::data::Torrent> =
+            qbittorrent::queries::TorrentRequestBuilder::default()
+                .filter(qbittorrent::queries::TorrentFilter::All)
+                .category(AUTODL_CATEGORY)
+                .build()
+                .expect("torrent request builder error")
+                .send(&self.api)
+                .await?;
+
+        for torrent in all_torrents {
+            println! {"testing to pause torrent name: {}", torrent.name()};
+
+            // get a pointer to some item in the hashset
+            let ptr = if let Some(hash) = self.all_hashes.get(torrent.hash().deref()) {
+                hash as *const String
+            } else {
+                println! {"hash was not in all hashes as expected for torrent: {}", torrent.name()}
+                continue;
+            };
+
+            // if we have the pointer stored then we have paused the torrent previously
+            if self.paused_title_hashes.contains(&ptr) {
+                continue;
+            }
+
+            // check if the title is acceptable
+            if !self.torrent_title_acceptable(&torrent) {
+                // if we get here then we know we need to pause things
+                match torrent.set_category(&self.api, TITLE_BAN_CATEGORY).await {
+                    // the torrent has been successfully paused
+                    Ok(_) => {
+                        if let Ok(_) = torrent.pause(&self.api).await {
+                            self.paused_title_hashes.insert(ptr);
+                        }
+                    }
+                    Err(e) => {
+                        println! {"error setting title ban category for torrent: {} ", torrent.name()}
                         dbg! {e};
                     }
                 }
@@ -74,13 +186,21 @@ impl QbitMonitor {
     }
 
     fn keep_seeding_tracker(&self, t_data: &qbittorrent::data::Tracker) -> bool {
-        let mut keep = false;
         for i in &self.trackers {
             if t_data.url().contains(i) {
-                keep = true
+                return true;
             }
         }
-        return keep;
+        return false;
+    }
+
+    fn torrent_title_acceptable(&self, t_data: &qbittorrent::data::Torrent) -> bool {
+        for i in &self.title_bans {
+            if t_data.name().to_ascii_lowercase().contains(i) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -139,7 +259,7 @@ impl FeedMonitor {
             .savepath(&save_folder)
             .urls(&data.download_link)
             .paused(data.original_matcher.start_condition())
-            .category("AUTO_DL")
+            .category(AUTODL_CATEGORY)
             .build()
             .expect("incorrect building of download builder");
 
