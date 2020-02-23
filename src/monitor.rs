@@ -149,7 +149,7 @@ impl QbitMonitor {
                 .await?;
 
         for torrent in all_torrents {
-            println! {"testing to pause torrent name: {}", torrent.name()};
+            // println! {"testing to pause torrent name: {}", torrent.name()};
 
             // get a pointer to some item in the hashset
             let ptr = if let Some(hash) = self.all_hashes.get(torrent.hash().deref()) {

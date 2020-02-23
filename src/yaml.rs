@@ -71,7 +71,19 @@ impl RssFeed {
         &self,
         pool: &reqwest::Client,
     ) -> Result<Vec<rss::TorrentData<'_>>, Error> {
-        let response: &[u8] = &pool.get(&self.url).send().await?.bytes().await?;
+        let mut header = reqwest::header::HeaderMap::with_capacity(1);
+        header.insert(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko".parse()?,
+        );
+
+        let response: &[u8] = &pool
+            .get(&self.url)
+            .headers(header)
+            .send()
+            .await?
+            .bytes()
+            .await?;
 
         let data = rss::xml_to_torrents(response)?;
 

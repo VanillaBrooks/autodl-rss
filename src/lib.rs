@@ -25,4 +25,6 @@ pub enum Error {
     SerdeMissing,
     #[error("")]
     MissingBytes,
+    #[error("")]
+    InvalidHeader(#[from] http::header::InvalidHeaderValue),
 }
