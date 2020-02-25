@@ -208,7 +208,7 @@ impl QbitMonitor {
 pub struct FeedMonitor {
     client: reqwest::Client,
     // rss hashes that we have looked at
-    previous_hashes: RwLock<HashSet<u64>>,
+    previous_hashes: HashSet<u64>,
     feed: RssFeed,
     qbit: Arc<qbittorrent::api::Api>,
 }
@@ -216,27 +216,29 @@ impl FeedMonitor {
     pub fn from_feed(data: RssFeed, qbit: Arc<qbittorrent::api::Api>) -> Self {
         FeedMonitor {
             client: reqwest::Client::new(),
-            previous_hashes: RwLock::new(HashSet::new()),
+            previous_hashes: HashSet::new(),
             feed: data,
             qbit,
         }
     }
     // check all rss feeds for updates: update, pull torrents, and download them if possible
-    pub async fn run_update(&self) -> Result<u32, Error> {
+    pub async fn run_update(&mut self) -> Result<u32, Error> {
         // fetch data from the torrent feed. Error out if there was an issue with the request
         let data = match self.feed.fetch_new(&self.client).await {
             Ok(data) => data,
             Err(e) => return Err(Error::from(e)),
         };
 
-        let mut write = self.previous_hashes.write().await;
+        // let mut write = &mut self.previous_hashes;
+
         for item in data {
             // if we have not previously downloaded the torrent
-            if !write.contains(&item.item_hash) {
+            if !self.previous_hashes.contains(&item.item_hash) {
                 // tell the client to download the torrent
                 if let Ok(_) = self.start_qbit_download(&item).await {
                     // insert it to the history
-                    write.insert(item.item_hash);
+                    // write.insert(item.item_hash);
+                    self.previous_hashes.insert(item.item_hash);
                 } else {
                     dbg! {"failed to download file:", item.title};
                 }
@@ -244,6 +246,10 @@ impl FeedMonitor {
         }
 
         return Ok(self.feed.update_interval);
+    }
+
+    pub fn feed(&self) ->&RssFeed {
+        &self.feed
     }
 
     // start qbittorrnet's download of a file

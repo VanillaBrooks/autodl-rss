@@ -9,17 +9,18 @@ async fn start() -> Result<(), Error> {
 
     let feeds = yaml_data.split(&qbit.api);
 
-    feeds.into_iter().for_each(|x| {
+    feeds.into_iter().for_each(|mut x| {
         let task = async move {
             loop {
                 let tmp = x.run_update().await;
                 match tmp {
                     Ok(countdown) => {
+                        println!{"Finished RSS update for tracker: {}", x.feed().url};
                         tokio::time::delay_for(std::time::Duration::from_secs(countdown as u64))
                             .await
                     }
                     Err(e) => {
-                        println! {"error fetching torrents: "}
+                        println! {"main thread error fetching torrents: "}
                         dbg! {e};
                         tokio::time::delay_for(std::time::Duration::from_secs(60)).await
                     }
@@ -31,7 +32,7 @@ async fn start() -> Result<(), Error> {
     });
 
     loop {
-        println! {"looping qbit cycle"};
+        println! {"looping through qbittorrent checks"};
 
         // get a list of all hashes
         if let Err(e) = qbit.sync_qbit().await {

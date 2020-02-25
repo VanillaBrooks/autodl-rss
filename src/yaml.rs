@@ -114,6 +114,9 @@ impl RssFeed {
             j.lowercase()
         }
     }
+    pub (crate) fn url(&self)  -> &str {
+        &self.url
+    }
 }
 
 type Matcher = Option<Vec<Vec<String>>>;
