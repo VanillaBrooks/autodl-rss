@@ -4,7 +4,8 @@ use autodl_rss;
 use autodl_rss::{monitor, yaml, Error};
 
 async fn start() -> Result<(), Error> {
-    let yaml_data = yaml::FeedManager::from_yaml("config.yaml")?;
+    let yaml_data = yaml::FeedManager::from_yaml(&["/config/config.yaml", "config.yaml"])?;
+    println! {"opened config.yaml"}
     let mut qbit: monitor::QbitMonitor = yaml_data.qbit().await?;
 
     let feeds = yaml_data.split(&qbit.api);
@@ -15,13 +16,12 @@ async fn start() -> Result<(), Error> {
                 let tmp = x.run_update().await;
                 match tmp {
                     Ok(countdown) => {
-                        println!{"Finished RSS update for tracker: {}", x.feed().url};
+                        println! {"Finished RSS update for tracker: {}", x.feed().url};
                         tokio::time::delay_for(std::time::Duration::from_secs(countdown as u64))
                             .await
                     }
                     Err(e) => {
-                        println! {"main thread error fetching torrents: "}
-                        dbg! {e};
+                        println! {"main thread error fetching torrents: {:?}", e}
                         tokio::time::delay_for(std::time::Duration::from_secs(60)).await
                     }
                 }
@@ -61,6 +61,8 @@ async fn delay(interval: u64) -> tokio::time::Delay {
 }
 #[tokio::main]
 async fn main() {
+    println! {"sleeping for 10 seconds"}
+    std::thread::sleep(std::time::Duration::from_secs(10));
     dbg! {start().await};
-    dbg! {"here"};
+    dbg! {"could not start downloader"};
 }

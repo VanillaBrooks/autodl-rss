@@ -27,4 +27,6 @@ pub enum Error {
     MissingBytes,
     #[error("")]
     InvalidHeader(#[from] http::header::InvalidHeaderValue),
+    #[error("the configuration file was missing from all locations")]
+    ConfigMissing,
 }

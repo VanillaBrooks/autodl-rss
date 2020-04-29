@@ -21,8 +21,20 @@ pub struct FeedManager {
 }
 impl FeedManager {
     // Fetch yaml of configs to download
-    pub fn from_yaml(path: &str) -> Result<FeedManager, Error> {
-        let file = std::fs::File::open(path)?;
+    pub fn from_yaml(paths: &[&str]) -> Result<FeedManager, Error> {
+        // cycle through all the paths, figure if any of the file locations are valid
+        let mut iter = paths
+            .iter()
+            .map(|file_location| (file_location, std::fs::File::open(file_location)))
+            .filter(|(_file_loc, file_opening)| file_opening.is_ok())
+            .map(|(file_location, file)| (file_location, file.unwrap()));
+
+        let file = if let Some((filename, file)) = iter.next() {
+            println! {"FeedManager: using file from : {}", filename}
+            file
+        } else {
+            return Err(Error::ConfigMissing);
+        };
 
         let mut yaml: FeedManager = serde_yaml::from_reader(file)?;
         yaml.lowercase();
@@ -114,7 +126,7 @@ impl RssFeed {
             j.lowercase()
         }
     }
-    pub (crate) fn url(&self)  -> &str {
+    pub(crate) fn url(&self) -> &str {
         &self.url
     }
 }

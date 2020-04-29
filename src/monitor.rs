@@ -108,13 +108,18 @@ impl QbitMonitor {
                 }
             };
 
+            let mut pause_torrent = true;
             // check each tracker for the torrent against the user-provided list of ok-trackers
             for tracker in tracker {
                 // if we we need to seed this tracker then skip tracker
                 if self.keep_seeding_tracker(&tracker) {
-                    continue;
+                    pause_torrent = false;
                 }
+            }
 
+            // if we never found a tracker that we allowed then pause_torrent is true
+            // and we send the command to stop seeding
+            if pause_torrent {
                 // if we get here then we know none of the trackers are ones we care about
                 match torrent.pause(&api).await {
                     // the torrent has been successfully paused
@@ -248,7 +253,7 @@ impl FeedMonitor {
         return Ok(self.feed.update_interval);
     }
 
-    pub fn feed(&self) ->&RssFeed {
+    pub fn feed(&self) -> &RssFeed {
         &self.feed
     }
 
