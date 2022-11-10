@@ -52,10 +52,10 @@ impl FeedManager {
         Ok(qbit)
     }
 
-    pub fn split<'a>(self, qbit: &Arc<qbittorrent::Api>) -> Vec<FeedMonitor> {
+    pub fn split(self, qbit: &Arc<qbittorrent::Api>) -> Vec<FeedMonitor> {
         self.feeds
             .into_iter()
-            .map(|x| FeedMonitor::from_feed(x, Arc::clone(&qbit)))
+            .map(|x| FeedMonitor::from_feed(x, Arc::clone(qbit)))
             .collect()
     }
 }
@@ -101,7 +101,7 @@ impl RssFeed {
 
         let filter_data = data
             .into_iter()
-            .map(|x| {
+            .filter_map(|x| {
                 // make sure that the file matches at least one type condition
                 let mut data = None;
 
@@ -114,8 +114,6 @@ impl RssFeed {
 
                 data
             })
-            .filter(|data| data.is_some())
-            .map(|x| x.unwrap())
             .collect::<Vec<_>>();
 
         Ok(filter_data)
@@ -125,9 +123,6 @@ impl RssFeed {
         for j in &mut self.matcher {
             j.lowercase()
         }
-    }
-    pub(crate) fn url(&self) -> &str {
-        &self.url
     }
 }
 
@@ -147,8 +142,8 @@ impl TorrentMatch {
         let lower = |arg: &Matcher| match &arg {
             Some(values) => {
                 let vals: Vec<Vec<String>> = values
-                    .into_iter()
-                    .map(|x| x.into_iter().map(|y| y.to_lowercase()).collect())
+                    .iter()
+                    .map(|x| x.iter().map(|y| y.to_lowercase()).collect())
                     .collect();
                 Some(vals)
             }
@@ -170,7 +165,7 @@ impl TorrentMatch {
 
         if let Some(wanted_titles) = &self.title_wanted {
             for title in wanted_titles {
-                if !title_input.contains_(&title) {
+                if !title_input.contains_(title) {
                     good_title = false;
                     break;
                 }
@@ -179,14 +174,14 @@ impl TorrentMatch {
 
         if let Some(banned_title) = &self.title_banned {
             for title in banned_title {
-                if title_input.contains_(&title) {
+                if title_input.contains_(title) {
                     good_title = false;
                     break;
                 }
             }
         }
 
-        return good_title;
+        good_title
     }
 
     // make sure the HashSet is all lowercase
@@ -213,7 +208,7 @@ impl TorrentMatch {
             }
         }
 
-        return good_tags;
+        good_tags
     }
 
     pub(crate) fn start_condition(&self) -> String {
@@ -229,11 +224,11 @@ impl TorrentMatch {
 }
 
 trait Contains_ {
-    fn contains_(&self, value: &Vec<String>) -> bool;
+    fn contains_(&self, value: &[String]) -> bool;
 }
 
 impl Contains_ for HashSet<String> {
-    fn contains_(&self, or_tags_group: &Vec<String>) -> bool {
+    fn contains_(&self, or_tags_group: &[String]) -> bool {
         let mut good = false;
 
         for tag in or_tags_group {
@@ -248,7 +243,7 @@ impl Contains_ for HashSet<String> {
 }
 
 impl Contains_ for String {
-    fn contains_(&self, or_tags_group: &Vec<String>) -> bool {
+    fn contains_(&self, or_tags_group: &[String]) -> bool {
         let mut good = false;
 
         for tag in or_tags_group {

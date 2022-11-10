@@ -2,15 +2,12 @@ pub mod monitor;
 pub mod rss;
 pub mod yaml;
 
-use qbittorrent;
-
-use thiserror::Error as ThisError;
-#[derive(Debug, ThisError)]
+#[derive(Debug, thiserror::Error )]
 pub enum Error {
     #[error("")]
     Reqwest(#[from] reqwest::Error),
     #[error("")]
-    Serde(#[from] serde_xml_rs::Error),
+    Serde(#[from] quick_xml::DeError),
     #[error("")]
     IoError(#[from] std::io::Error),
     #[error("")]
