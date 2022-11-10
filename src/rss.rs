@@ -1,12 +1,15 @@
-use super::Error;
-use serde::{Deserialize, Serialize};
+///
+/// custom RSS parsing for non-standard rss feeds
+///
+
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-// custom RSS parsing for non-standard rss feeds
 
 use super::yaml;
-use serde_xml_rs as xml;
+use super::Error;
+
+use serde::{Deserialize, Serialize};
 use serde_yaml;
 
 #[derive(Deserialize, Debug)]
@@ -16,7 +19,9 @@ struct Document {
 
 #[derive(Deserialize, Debug)]
 struct Channel {
+    #[allow(dead_code)]
     title: Option<String>,
+    #[allow(dead_code)]
     description: Option<String>,
     item: Option<Vec<Item>>,
 }
@@ -58,7 +63,7 @@ impl Item {
         }
 
         dbg! {"link missing SerdeMissing"};
-        return Err(Error::SerdeMissing);
+        Err(Error::SerdeMissing)
     }
 }
 
@@ -97,7 +102,7 @@ impl SerdeTorrentData {
         };
         let tags = match &item.tags {
             Some(tags) => tags
-                .split(" ")
+                .split(' ')
                 .map(|x| x.to_string().to_lowercase())
                 .collect(),
             None => HashSet::new(),
@@ -109,7 +114,7 @@ impl SerdeTorrentData {
 
         Ok(Self {
             title: item.title.take().unwrap().to_lowercase(),
-            tags: tags,
+            tags,
             download_link: link,
             size: torrent.content_length,
             item_hash: hash,
@@ -155,16 +160,15 @@ impl<'a> TorrentData<'a> {
     }
 }
 
-pub fn xml_to_torrents<'a, T: std::io::Read>(data: T) -> Result<Vec<SerdeTorrentData>, Error> {
-    let doc: Document = xml::from_reader(data)?;
+pub fn xml_to_torrents<T: std::io::BufRead>(data: T) -> Result<Vec<SerdeTorrentData>, Error> {
+    let doc: Document = quick_xml::de::from_reader(data)?;
 
     if let Some(channel) = doc.channel {
         if let Some(items) = channel.item {
             let t_data = items
                 .into_iter()
-                .map(|item| SerdeTorrentData::new(item))
-                .filter(|item| item.is_ok())
-                .map(|item| item.unwrap())
+                .map(SerdeTorrentData::new)
+                .filter_map(|item| item.ok())
                 .collect::<Vec<_>>();
 
             Ok(t_data)

@@ -7,11 +7,7 @@ use std::fs;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-
 use reqwest;
-use std::boxed::Box;
-use std::pin::Pin;
 
 const AUTODL_CATEGORY: &str = "AUTO_DL";
 const TITLE_BAN_CATEGORY: &str = "TITLE_BAN";
@@ -20,15 +16,17 @@ const TITLE_BAN_CATEGORY: &str = "TITLE_BAN";
 pub struct QbitMonitor {
     pub api: Arc<qbittorrent::api::Api>,
     // checked_hashes: HashSet<String>,
-    all_hashes: Pin<Box<HashSet<String>>>,
+    all_hashes: HashSet<String>,
     // paused due to tracker requirements
     paused_tracker_hashes: HashSet<*const String>,
     // paused do to title issues
     paused_title_hashes: HashSet<*const String>,
     trackers: Vec<String>,
     title_bans: Vec<String>,
+    #[allow(dead_code)]
     file_bans: Vec<String>,
 }
+
 impl QbitMonitor {
     pub async fn new(qbit_auth: QbittorrentAuthentication) -> Result<Self, Error> {
         let api: qbittorrent::Api =
@@ -38,8 +36,8 @@ impl QbitMonitor {
         // set up category for torrents that do not meet title criteria
         api.add_category(TITLE_BAN_CATEGORY, "").await?;
 
-        let title_bans = qbit_auth.title_bans.unwrap_or(Vec::new());
-        let file_bans = qbit_auth.file_bans.unwrap_or(Vec::new());
+        let title_bans = qbit_auth.title_bans.unwrap_or_default();
+        let file_bans = qbit_auth.file_bans.unwrap_or_default();
 
         let lower = |x: Vec<String>| x.into_iter().map(|x| x.to_ascii_lowercase()).collect();
         let title_bans = lower(title_bans);
@@ -48,7 +46,7 @@ impl QbitMonitor {
 
         Ok(Self {
             api: Arc::new(api),
-            all_hashes: Pin::new(Box::new(HashSet::new())),
+            all_hashes: HashSet::new(),
             paused_tracker_hashes: HashSet::new(),
             paused_title_hashes: HashSet::new(),
             trackers,
@@ -99,7 +97,7 @@ impl QbitMonitor {
             }
 
             // get all trackers attached to this torrent
-            let tracker = match torrent.trackers(&api).await {
+            let tracker = match torrent.trackers(api).await {
                 Ok(x) => x,
                 Err(e) => {
                     println! {"error getting trackers for torrent {}", torrent.name()};
@@ -121,7 +119,7 @@ impl QbitMonitor {
             // and we send the command to stop seeding
             if pause_torrent {
                 // if we get here then we know none of the trackers are ones we care about
-                match torrent.pause(&api).await {
+                match torrent.pause(api).await {
                     // the torrent has been successfully paused
                     Ok(_) => {
                         self.paused_tracker_hashes.insert(ptr);
@@ -139,7 +137,7 @@ impl QbitMonitor {
 
     pub async fn check_titles(&mut self) -> Result<(), Error> {
         // if we have no title bans just quit
-        if self.title_bans.len() == 0 {
+        if self.title_bans.is_empty() {
             return Ok(());
         }
 
@@ -175,7 +173,7 @@ impl QbitMonitor {
                 match torrent.set_category(&self.api, TITLE_BAN_CATEGORY).await {
                     // the torrent has been successfully paused
                     Ok(_) => {
-                        if let Ok(_) = torrent.pause(&self.api).await {
+                        if torrent.pause(&self.api).await.is_ok() {
                             self.paused_title_hashes.insert(ptr);
                         }
                     }
@@ -196,7 +194,8 @@ impl QbitMonitor {
                 return true;
             }
         }
-        return false;
+
+        false
     }
 
     fn torrent_title_acceptable(&self, t_data: &qbittorrent::data::Torrent) -> bool {
@@ -205,7 +204,8 @@ impl QbitMonitor {
                 return false;
             }
         }
-        return true;
+
+        true
     }
 }
 
@@ -231,7 +231,7 @@ impl FeedMonitor {
         // fetch data from the torrent feed. Error out if there was an issue with the request
         let data = match self.feed.fetch_new(&self.client).await {
             Ok(data) => data,
-            Err(e) => return Err(Error::from(e)),
+            Err(e) => return Err(e),
         };
 
         // let mut write = &mut self.previous_hashes;
@@ -240,7 +240,7 @@ impl FeedMonitor {
             // if we have not previously downloaded the torrent
             if !self.previous_hashes.contains(&item.item_hash) {
                 // tell the client to download the torrent
-                if let Ok(_) = self.start_qbit_download(&item).await {
+                if self.start_qbit_download(&item).await.is_ok() {
                     // insert it to the history
                     // write.insert(item.item_hash);
                     self.previous_hashes.insert(item.item_hash);
@@ -250,7 +250,7 @@ impl FeedMonitor {
             }
         }
 
-        return Ok(self.feed.update_interval);
+        Ok(self.feed.update_interval)
     }
 
     pub fn feed(&self) -> &RssFeed {
@@ -263,7 +263,12 @@ impl FeedMonitor {
 
         let save_folder = data.original_matcher.save_folder.clone();
 
-        fs::create_dir_all(&save_folder);
+        if let Err(e) = fs::create_dir_all(&save_folder) {
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(Error::from(e));
+            }
+        }
+
         let _x = data.write_metadata();
 
         let req = qbittorrent::queries::TorrentDownloadBuilder::default()
